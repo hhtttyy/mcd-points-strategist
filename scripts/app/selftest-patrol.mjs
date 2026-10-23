@@ -287,6 +287,56 @@ check("巡检报告列出三路券源", () => {
 });
 
 // --------------------------------------------------------------------------
+console.log("\n【闭环 —— earnRate 回校影响决策】");
+// --------------------------------------------------------------------------
+check("看板显示实测 earnRate", () => {
+  const out = renderDashboard(
+    {
+      snapshot: currSnap,
+      diff: diffSnapshots(prevSnap, currSnap, { now: NOW }),
+      prevAccount: { accumulative: 581.3 },
+    },
+    { now: NOW }
+  );
+  return truthy(out.includes("earnRate 实测"));
+});
+check("无上一次快照时不显示 earnRate（不编造）", () => {
+  const out = renderDashboard(
+    { snapshot: currSnap, diff: diffSnapshots(prevSnap, currSnap, { now: NOW }), prevAccount: null },
+    { now: NOW }
+  );
+  return !out.includes("earnRate 实测");
+});
+check("死锁时用实测 earnRate 算补差金额", () => {
+  const deadInput = {
+    ...fullInput,
+    account: { ...fullInput.account, available: 10 },
+  };
+  const withDefault = planAssetAllocation(deadInput, { now: NOW });
+  const withCalib = planAssetAllocation(deadInput, { now: NOW, earnRate: 2 });
+  const a1 = withDefault.actions.find((x) => x.type === "deadlock");
+  const a2 = withCalib.actions.find((x) => x.type === "deadlock");
+  // earnRate=2 时同样缺口花的钱更少
+  return truthy(a2.spendNeeded < a1.spendNeeded);
+});
+check("未校准时明确标注用的是默认值", () => {
+  const p = planAssetAllocation(
+    { ...fullInput, account: { ...fullInput.account, available: 10 } },
+    { now: NOW }
+  );
+  const a = p.actions.find((x) => x.type === "deadlock");
+  return eq(a.earnRateCalibrated, false);
+});
+check("校准后标注为已校准", () => {
+  const p = planAssetAllocation(
+    { ...fullInput, account: { ...fullInput.account, available: 10 } },
+    { now: NOW, earnRate: 1.3 }
+  );
+  const a = p.actions.find((x) => x.type === "deadlock");
+  return eq(a.earnRateCalibrated, true);
+});
+
+// --------------------------------------------------------------------------
 console.log("\n──────────────────────────────────────────────────");
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项\n`);
 if (fail) {

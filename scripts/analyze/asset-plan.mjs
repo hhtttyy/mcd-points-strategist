@@ -287,15 +287,24 @@ export function planAssetAllocation(input = {}, opts = {}) {
     const candidate = shadow.bestOverall;
     if (candidate && (account?.available ?? 0) > 0) {
       const gap = round(candidate.points - (account?.available ?? 0), 1);
+      // earnRate 来自账本校准（M5 闭环回校）。默认 1.0 是兜底，不是实测。
+      const earnRate = num(opts.earnRate) || 1;
+      const spendNeeded = round(gap / earnRate, 2);
+      const calibrated = num(opts.earnRate) > 0;
       actions.push({
         type: "deadlock",
         priority: 4,
         title: `当前余额够不到任何在售档位`,
         detail: `最优档「${candidate.name}」需 ${candidate.points} 分，差 ${gap} 分`,
-        cost: { points: 0, yuan: null },
-        gain: { yuan: null },
-        reason: "处于门槛-余额错配死锁 —— 与其让积分自然过期，不如精确补差",
+        cost: { points: 0, yuan: spendNeeded },
+        gain: { yuan: candidate.faceValue },
+        reason: calibrated
+          ? `处于门槛-余额错配死锁 —— 再消费约 ¥${spendNeeded}（按实测 ${earnRate} 积分/元）即可跨过门槛`
+          : `处于门槛-余额错配死锁 —— 再消费约 ¥${spendNeeded} 即可跨过门槛（earnRate 用默认值 1，尚未校准）`,
         gap,
+        spendNeeded,
+        earnRate,
+        earnRateCalibrated: calibrated,
         target: candidate,
       });
     }
@@ -353,6 +362,11 @@ function buildNote(valuation) {
     return `${s.note}。当前余额够不到任何在售档位，影子价格仅作参照 —— 优先考虑补差或抽奖。`;
   }
   return `${s.note}。据此，1 张 ¥13.5 的券 ≈ ${Math.round(13.5 / s.price)} 积分，可以直接比大小。`;
+}
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 function round(v, p = 2) {

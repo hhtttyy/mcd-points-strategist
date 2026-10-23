@@ -16,6 +16,7 @@ import { planAssetAllocation } from "../analyze/asset-plan.mjs";
 import { auditCoupons } from "../analyze/coupon-audit.mjs";
 import { forecastOrders, scheduleCoupons } from "../analyze/coupon-schedule.mjs";
 import { classify, parseCouponTerms } from "../analyze/coupon-model.mjs";
+import { calibrateEarnRate } from "../analyze/ledger.mjs";
 
 /**
  * 渲染完整看板。
@@ -35,9 +36,17 @@ export function renderDashboard(input = {}, opts = {}) {
 
   const coupons = (snap.coupons || []).map(enrich);
   const audit = auditCoupons(coupons, { now, channel, hour });
+
+  // earnRate 回校：闭环的最后一环 —— 用本期真实数据修正补差金额
+  const calibration = calibrateEarnRate(
+    input.prevAccount,
+    snap.account,
+    diff.newOrders || []
+  );
+
   const plan = planAssetAllocation(
     { account: snap.account, coupons, mall: snap.mall, lottery: snap.lottery, campaigns: snap.campaigns, orders: snap.orders },
-    { now, channel, hour }
+    { now, channel, hour, earnRate: calibration.earnRate }
   );
   const forecast = forecastOrders(snap.orders || [], { now });
   const schedule = scheduleCoupons(coupons, forecast.orders, { now });
@@ -83,6 +92,10 @@ export function renderDashboard(input = {}, opts = {}) {
     const shadow = plan.valuation.shadow;
     if (shadow.price) {
       L.push(`　 1 积分 ≈ ¥${shadow.price.toFixed(4)}${shadow.reachableOnly ? "" : "（够不到最优档，仅作参照）"}`);
+    }
+    // earnRate 回校结果 —— 闭环的可见证据
+    if (calibration.earnRate) {
+      L.push(`　 📈 earnRate 实测 ${calibration.earnRate} 积分/元（${calibration.confidence === "high" ? "样本充足" : calibration.confidence === "medium" ? "样本一般" : "样本偏少"}）`);
     }
     if (a.expiringThisMonth > 0) {
       L.push(`　 ⚠️ ${a.expiringThisMonth} 积分本月过期（约 ¥${plan.valuation.points.expiringThisMonthYuan}）`);

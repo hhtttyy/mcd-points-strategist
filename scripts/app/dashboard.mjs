@@ -68,7 +68,12 @@ async function main() {
     return;
   }
 
-  console.log(renderDashboard({ snapshot, diff, channel, hour }, { now, channel, hour }));
+  console.log(
+    renderDashboard(
+      { snapshot, diff, channel, hour, prevAccount: prev?.account ?? null },
+      { now, channel, hour }
+    )
+  );
 }
 
 main().catch((e) => {
