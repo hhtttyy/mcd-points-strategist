@@ -18,8 +18,8 @@ import { dirname, resolve } from "node:path";
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const SRC_ENGINE = resolve(ROOT, "scripts/points-engine.mjs");
 const SRC_DATA = resolve(ROOT, "fixtures/mcd-snapshot.json");
-const DST_ENGINE = resolve(ROOT, "docs/_vendor/points-engine.mjs");
-const DST_DATA = resolve(ROOT, "docs/_data/mcd-snapshot.json");
+const DST_ENGINE = resolve(ROOT, "docs/vendor/points-engine.mjs");
+const DST_DATA = resolve(ROOT, "docs/data/mcd-snapshot.json");
 const INDEX = resolve(ROOT, "docs/index.html");
 
 const checkOnly = process.argv.includes("--check");
@@ -50,15 +50,15 @@ async function main() {
   // 确保 index.html 引用的是 docs 内路径
   const html = await readFile(INDEX, "utf8");
   const fixed = html
-    .replace(/from\s+"\.\.\/scripts\/points-engine\.mjs"/, 'from "./_vendor/points-engine.mjs"')
-    .replace(/fetch\("\.\.\/fixtures\/mcd-snapshot\.json"\)/, 'fetch("./_data/mcd-snapshot.json")');
+    .replace(/from\s+"\.\.\/scripts\/points-engine\.mjs"/, 'from "./vendor/points-engine.mjs"')
+    .replace(/fetch\("\.\.\/fixtures\/mcd-snapshot\.json"\)/, 'fetch("./data/mcd-snapshot.json")');
   if (fixed !== html) {
     await writeFile(INDEX, fixed, "utf8");
     console.log("✓ 已修正 index.html 的引用路径");
   }
 
-  console.log("✓ 已复制 scripts/points-engine.mjs  → docs/_vendor/points-engine.mjs");
-  console.log("✓ 已复制 fixtures/mcd-snapshot.json → docs/_data/mcd-snapshot.json");
+  console.log("✓ 已复制 scripts/points-engine.mjs  → docs/vendor/points-engine.mjs");
+  console.log("✓ 已复制 fixtures/mcd-snapshot.json → docs/data/mcd-snapshot.json");
   console.log("构建完成。GitHub Pages 将从 /docs 目录发布。");
 }
 

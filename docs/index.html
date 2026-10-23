@@ -227,11 +227,11 @@
 </div>
 
 <script type="module">
-import * as E from "./_vendor/points-engine.mjs";
+import * as E from "./vendor/points-engine.mjs";
 
 // 数据来源：真实 MCP 采集快照（脱敏）。直接读取 fixtures 而非硬编码，
 // 保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
-const SNAP = await (await fetch("./_data/mcd-snapshot.json")).json();
+const SNAP = await (await fetch("./data/mcd-snapshot.json")).json();
 
 const NOW = new Date(SNAP._generatedAt);
 const $ = (id) => document.getElementById(id);
