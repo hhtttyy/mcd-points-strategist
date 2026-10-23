@@ -95,18 +95,32 @@ async function main() {
         const time = await client.callTool("now-time-info");
         const t = time?.data?.date || time?.data?.formatted || null;
         const res = await client.callTool("campaign-calendar", t ? { specifiedDate: t } : {});
-        return collectCampaigns(rawText(res));
+        return collectCampaigns(res);
       }),
       probe(errors, "available-coupons", async () =>
-        collectAvailableCoupons(rawText(await client.callTool("available-coupons")))
+        collectAvailableCoupons(await client.callTool("available-coupons"))
       ),
       probe(errors, "query-my-coupons", async () =>
-        collectMyCoupons(rawText(await client.callTool("query-my-coupons")))
+        collectMyCoupons(await client.callTool("query-my-coupons"))
       ),
       probe(errors, "order-list", async () => collectOrders(await client.callTool("order-list"))),
-      probe(errors, "query-nearby-stores", async () =>
-        collectStores(rawText(await client.callTool("query-nearby-stores", { beType: 1, searchType: 1 })))
-      ),
+      probe(errors, "query-nearby-stores", async () => {
+        // searchType=1 是收藏餐厅；没有收藏时接口返回 success:false / code:600050，
+        // data 字段直接缺失 —— 这是正常空态。此时降级为位置搜索（searchType=2）。
+        const fav = await client.callTool("query-nearby-stores", { beType: 1, searchType: 1 });
+        const favStores = collectStores(fav);
+        if (favStores.length) return favStores;
+        const city = arg("city", null);
+        const keyword = arg("keyword", null);
+        if (!city || !keyword) return [];
+        const searched = await client.callTool("query-nearby-stores", {
+          beType: 1,
+          searchType: 2,
+          city,
+          keyword,
+        });
+        return collectStores(searched);
+      }),
     ]);
 
   // ---- 门店相关数据（需要 storeCode）----
@@ -116,13 +130,11 @@ async function main() {
   if (store.storeCode) {
     storeCoupons = await probe(errors, "query-store-coupons", async () =>
       collectStoreCoupons(
-        rawText(
-          await client.callTool("query-store-coupons", {
-            orderType: 1,
-            beType: 1,
-            storeCode: store.storeCode,
-          })
-        )
+        await client.callTool("query-store-coupons", {
+          orderType: 1,
+          beType: 1,
+          storeCode: store.storeCode,
+        })
       )
     );
     promotions = await probe(errors, "query-promotions", async () => {

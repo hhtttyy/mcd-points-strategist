@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "code": "REDACTED-CODE",
+  "message": "请求成功",
+  "datetime": "2026-10-23 15:52:44",
+  "traceId": "42cc29ca2ffe4e943d2a71c12c660748",
+  "data": {
+    "availablePoint": "33.5",
+    "accountId": "REDACTED-ACCOUNT-ID",
+    "accumulativePoint": "763",
+    "currency": "麦享会积分",
+    "currentMouthExpirePoint": "0",
+    "expiredPoint": "729.5",
+    "frozenPoint": "0",
+    "lastMouthExpirePoint": "0",
+    "nextMouthExpirePoint": "0",
+    "usedPoint": "0"
+  }
+}

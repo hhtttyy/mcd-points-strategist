@@ -190,6 +190,18 @@ export function decorateCoupon(coupon, { now = new Date() } = {}) {
   const validFrom = coupon.validFrom ? parseTime(coupon.validFrom) : null;
   const isUsableNow = !validFrom || validFrom <= now;
 
+  // ⚠️ benefit（这张券能省多少钱）与 value（接口给的数字）**不是一回事**。
+  //    实测（2026-10-23 真实调用）：卡包券的 discountInfo.discountDesc
+  //    明确写着 "用券价格" —— 那是**你用券后要付的钱**，不是省下的钱。
+  //    例如「1024码力翻倍 ¥20.48」= 两件套到手价 ¥20.48，
+  //    绝不能说成「这张券省了 20.48 元」。
+  //
+  //    只有 discountDesc 表达「减免金额」时，value 才等于 benefit。
+  //    coupon_price 语义下，节省额要拿菜单原价对比才能算 ——
+  //    没有原价时**报未知，绝不编造**。
+  const valueKind = coupon.valueKind || "discount_amount";
+  const benefitKnown = valueKind !== "coupon_price" && Number(coupon.value) > 0;
+
   return {
     ...coupon,
     type,
@@ -197,6 +209,10 @@ export function decorateCoupon(coupon, { now = new Date() } = {}) {
     daysLeft,
     usableSlots: coupon.usableSlots ?? null,
     isUsableNow,
+    valueKind,
+    // benefit = 可确证的优惠金额；benefitKnown=false 时为 null（不是 0）
+    benefit: benefitKnown ? Number(coupon.value) : null,
+    benefitKnown,
   };
 }
 
@@ -301,6 +317,248 @@ export function parseCampaignsMarkdown(text) {
     });
   }
   return out;
+}
+
+/**
+ * 从「我的优惠券」的真实 JSON 结构转成契约对象。
+ *
+ * ⚠️ 实测（2026-10-23 真实调用）：`query-my-coupons` 返回的是
+ *   `{ success, code, data: { coupons: [...] } }` —— **业务 JSON 直挂顶层**，
+ *   不是标准 MCP 的 `{ content: [...] }` 信封。
+ *
+ *   好处：时段、星期、渠道、有效期都是**原生结构化字段**，
+ *   完全不需要从 Markdown 文本里正则抠：
+ *   - tradeStartDateTime / tradeEndDateTime  精确到秒的起止
+ *   - tradeTimePeriods[{startTime,endTime}]  每日可用时段
+ *   - weekdays[] + isAllTradeTime           星期限制（空数组 = 不限）
+ *   - instructions.labels[].text             渠道标签（"到店" / "外送"）
+ *   - discountInfo.discountValue            用券价格
+ *   - discountInfo.discountDesc             面值语义（"用券价格" / "优惠金额"）
+ *
+ *   对比：从 Markdown 抠「有效期」那行再解析，星期与时段混在同一串文本里，
+ *   单日券与多日券的语义完全不同，极易判错。原生字段没有这个问题。
+ */
+export function collectMyCouponsJson(data) {
+  const list = Array.isArray(data?.data?.coupons)
+    ? data.data.coupons
+    : Array.isArray(data?.coupons)
+      ? data.coupons
+      : Array.isArray(data?.data)
+        ? data.data
+        : [];
+
+  return list.map((c) => {
+    // 时段：原生数组，取第一个（目前实测均只有一个时段）
+    const periods = Array.isArray(c.tradeTimePeriods) ? c.tradeTimePeriods : [];
+    const dayWindow = periods.length
+      ? `${String(periods[0].startTime || "").slice(0, 5)}-${String(periods[0].endTime || "").slice(0, 5)}`
+      : "";
+
+    // 星期：原生数组。isAllTradeTime=1 表示不限。
+    const isAll = c.isAllTradeTime === 1 || c.isAllTradeTime === "1";
+    const weekdays = isAll
+      ? []
+      : (Array.isArray(c.weekdays) ? c.weekdays : []).map((w) => Number(w)).filter((n) => n >= 0 && n <= 6);
+
+    // 渠道：原生标签。实测 "到店" / "外送" / "到店、外送"
+    const labels = (c.instructions?.labels || []).map((l) => String(l.text || ""));
+    const labelText = labels.join("、");
+    const channel = parseChannel(labelText);
+
+    const startAt = c.tradeStartDateTime || null;
+    const endAt = c.tradeEndDateTime || null;
+
+    return {
+      id: String(c.id || c.couponId || ""),
+      code: String(c.code || c.couponCode || ""),
+      name: String(c.title || ""),
+      subtitle: String(c.subtitle || ""),
+      value: num(c.discountInfo?.discountValue),
+      valueDesc: String(c.discountInfo?.discountDesc || ""),
+      // discountDesc 决定这个数字是「用券价格」还是「减免金额」——
+      // 两者语义不同，不可混用（详见 references/mcp-pitfalls.md）
+      valueKind: c.discountInfo?.discountDesc === "用券价格" ? "coupon_price" : "discount_amount",
+      expireAt: toIso(parseTime(endAt)),
+      validFrom: toIso(parseTime(startAt)),
+      expireText: endAt || "",
+      dayWindow,
+      dayWindows: periods.map((p) => `${String(p.startTime || "").slice(0, 5)}-${String(p.endTime || "").slice(0, 5)}`),
+      weekdays,
+      weekdayText: weekdays.length ? weekdays.map((w) => "周" + "一二三四五六日"[w]).join("、") : "不限",
+      channel,
+      labelText,
+      receivedText: "",
+      source: "my",
+      status: "已领取",
+      totalCount: num(c.totalCount, 1),
+    };
+  });
+}
+
+/**
+ * 从「麦麦省可领券」的真实 JSON 结构转成契约对象。
+ *
+ * ⚠️ 实测：`available-coupons` 返回 `{ data: [ {couponName, couponImage, couponStatus, label} ] }`，
+ *   直挂顶层，无 content 信封。
+ *
+ * ⚠️ 重要口径：`couponStatus` 为 CAN_GET 表示**可领取**。
+ *   该接口**不接受任何参数**，返回账户全域的券 —— 与门店无关。
+ *   所以「先领券再核实门店」是对的流程：领券零成本、零门店依赖。
+ */
+export function collectAvailableCouponsJson(data) {
+  const list = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+      ? data
+      : [];
+  const out = [];
+  const seen = new Set();
+  for (const c of list) {
+    const name = String(c.couponName || c.name || "").trim();
+    if (!name) continue;
+    // 实测会返回同名券的多份（不同图片 = 不同批次），按名称去重
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push({
+      id: String(c.id || c.couponId || ""),
+      name,
+      value: 0, // 可领券接口不返回面值 —— 领了之后从 query-my-coupons 才能拿到
+      status: c.couponStatus === "CAN_GET" ? "可领取" : String(c.label || c.couponStatus || ""),
+      imageUrl: String(c.couponImage || ""),
+      source: "mcd-savers",
+      channel: [],
+      weekdays: [],
+      dayWindow: "",
+      expireAt: null,
+      validFrom: null,
+      labelText: String(c.label || ""),
+    });
+  }
+  return out;
+}
+
+/**
+ * 从活动日历的真实 JSON 结构转成契约对象。
+ *
+ * ⚠️ 实测：`campaign-calendar` 返回
+ *   `{ data: { currentTime, dailyList: [{ date, dateText, events: [...] }] } }`，直挂顶层。
+ *
+ * ⚠️ 活动内容里的价格（「9.9元」「13.9r」）是**营销文案**，无法核实，
+ *   不可用于任何计算。本函数只取日期与标题，不取文案里的数值。
+ */
+export function collectCampaignsJson(data) {
+  const daily = Array.isArray(data?.data?.dailyList)
+    ? data.data.dailyList
+    : Array.isArray(data?.dailyList)
+      ? data.dailyList
+      : [];
+  return daily.map((d) => {
+    const events = Array.isArray(d.events) ? d.events : [];
+    const titles = [];
+    const highlights = [];
+    for (const e of events) {
+      // ⚠️ 实测：标题与正文都在 `articleDto` 里，顶层的 `activityTitle` 是**空串**。
+      //    直接读 activityTitle 会让所有活动标题变成空数组。
+      //    （这与 maimai-butler 参考项目的 articleDto 解析口径一致）
+      const ad = e?.articleDto && typeof e.articleDto === "object" ? e.articleDto : null;
+      const t = String(ad?.title || e?.activityTitle || e?.title || "").trim();
+      if (t && !titles.includes(t)) titles.push(t);
+      const c = String(ad?.content || ad?.highlights || e?.activityContent || e?.content || "").trim();
+      if (c && !highlights.includes(c)) highlights.push(c);
+    }
+    // phase 从 dateText 里剥出来（「2026年10月22日 往期回顾」→「往期回顾」）
+    const dateText = String(d.dateText || "");
+    const phase = dateText.replace(/^\d{4}年\d{1,2}月\d{1,2}日\s*/, "").trim();
+    return {
+      date: String(d.date || ""),
+      phase,
+      titles,
+      highlights: highlights.join("\n").slice(0, 300),
+    };
+  });
+}
+
+/**
+ * 从「门店可用券」的真实 JSON 结构转成契约对象。
+ *
+ * ⚠️ 实测：`query-store-coupons` 返回
+ *   `{ data: [{ title, couponId, couponCode, tradeDateTime, products:[{productCode,productName}] }] }`
+ *   业务 JSON 直挂顶层。
+ *
+ * ⚠️ 口径说明：门店券的 `tradeDateTime` 是**日期区间**（无时分秒），
+ *    不像卡包券那样带每日时段。所以门店券的 dayWindow 为空 ——
+ *    它没有「每天 10:30 后才能用」这种限制。
+ */
+export function collectStoreCouponsJson(data) {
+  const list = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+      ? data
+      : [];
+  return list.map((c) => {
+    const td = String(c.tradeDateTime || "");
+    // "2026-10-23 00:00:00-2026-10-29 23:59:59" → 拆成起止
+    const m = td.match(
+      /(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(?::\d{2})?)/
+    );
+    const startAt = m ? m[1] : td.split("-")[0]?.trim() || null;
+    const endAt = m ? m[2] : null;
+    return {
+      id: String(c.couponId || c.id || ""),
+      code: String(c.couponCode || c.code || ""),
+      name: String(c.title || ""),
+      value: 0, // 门店券接口不返回面值
+      valueDesc: "",
+      valueKind: "discount_amount",
+      expireAt: toIso(parseTime(endAt)),
+      validFrom: toIso(parseTime(startAt)),
+      expireText: td,
+      dayWindow: "",
+      dayWindows: [],
+      weekdays: [],
+      weekdayText: "不限",
+      channel: [],
+      labelText: "",
+      itemCodes: (c.products || []).map((p) => String(p.productCode || "")),
+      itemNames: (c.products || []).map((p) => String(p.productName || "")),
+    };
+  });
+}
+
+/**
+ * 从「附近门店」的真实 JSON 结构转成契约对象。
+ *
+ * ⚠️ 实测：`query-nearby-stores` 返回
+ *   `{ data: [{ storeCode, storeName, address, distance, beCode, businessStatus,
+ *              businessStartTime, businessEndTime, reservation, reservationTimeOptions }] }`
+ *
+ * ⚠️ 重要：`searchType=1`（收藏餐厅）在没有收藏记录时返回
+ *   `{ success:false, code:600050, message:"收藏餐厅列表为空…" }` —— **data 缺失**。
+ *   此时必须降级为 `searchType=2`（按城市+关键词搜索），
+ *   否则门店列表永远为空。这不是错误，是正常的空态。
+ */
+export function collectStoresJson(data) {
+  const list = Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+      ? data
+      : [];
+  return list.map((s) => ({
+    storeCode: String(s.storeCode || ""),
+    name: String(s.storeName || s.name || ""),
+    address: String(s.address || ""),
+    distance: s.distance ?? null,
+    beCode: String(s.beCode || ""),
+    businessStatus: s.businessStatus ?? null,
+    businessStartTime: String(s.businessStartTime || ""),
+    businessEndTime: String(s.businessEndTime || ""),
+    reservation: s.reservation === true,
+    reservationOptions: (s.reservationTimeOptions || []).map((o) => ({
+      date: String(o.date || ""),
+      today: o.today === true,
+      text: String(o.reservationOptionText || ""),
+    })),
+  }));
 }
 
 /**

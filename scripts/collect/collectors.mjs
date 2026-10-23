@@ -8,8 +8,13 @@
  */
 
 import {
+  collectAvailableCouponsJson,
+  collectCampaignsJson,
   collectMallItems,
+  collectMyCouponsJson,
   collectOrders,
+  collectStoreCouponsJson,
+  collectStoresJson,
   decorateCoupon,
   num,
   parseCampaignsMarkdown,
@@ -80,26 +85,41 @@ export function collectMallDetail(data, { now = new Date() } = {}) {
  *    不限于某个门店。这就是「先领券、再核实门店细节」能成立的原因：
  *    领券这一动作与门店无关，不需要先定位门店。
  *
- * 实测返回的是 Markdown 文本，不是 JSON。
+ * ⚠️ 实测（2026-10-23 真实调用）返回的是**业务 JSON 直挂顶层**：
+ *    `{ success, code, data: [ { couponName, couponImage, couponStatus, label } ] }`
+ *    —— 不是标准 MCP 的 `{ content: [...] }` 信封。
+ *    早期基于脱敏 Markdown fixture 写的正则路径保留，作为回退。
  */
-export function collectAvailableCoupons(rawText, { now = new Date() } = {}) {
-  const rows = parseCouponListMarkdown(rawText);
+export function collectAvailableCoupons(raw, { now = new Date() } = {}) {
+  const fromJson = collectAvailableCouponsJson(raw);
+  const rows = fromJson.length
+    ? fromJson
+    : parseCouponListMarkdown(raw).map((r) => ({
+        name: r.name,
+        status: r.status,
+        value: 0,
+        imageUrl: "",
+        labelText: "",
+      }));
+
   return rows.map((r, i) =>
     decorateCoupon(
       {
-        id: `mcd-savers-${i}-${r.name}`,
+        id: r.id || `mcd-savers-${i}-${r.name}`,
         name: r.name,
-        value: 0,
+        value: num(r.value),
         threshold: 0,
         expireAt: null,
         expireText: "",
         dayWindow: "",
         weekdays: [],
         weekdayText: "",
-        channel: [],
+        channel: r.channel || [],
         validFrom: null,
         source: "mcd-savers",
         status: r.status,
+        imageUrl: r.imageUrl || "",
+        labelText: r.labelText || "",
         itemCodes: [],
         stackable: false,
         usableSlots: null,
@@ -114,25 +134,55 @@ export function collectAvailableCoupons(rawText, { now = new Date() } = {}) {
  *
  * 这是**唯一能拿到券有效期与限制的来源**。未领取的券拿不到这些字段，
  * 因此对「可领取」的券只能给出「未知」而不能编造剩余天数。
+ *
+ * ⚠️ 实测返回 `{ data: { coupons: [...] } }`，业务 JSON 直挂顶层。
+ *    时段/星期/渠道/有效期全是原生字段，无需从文本正则抠。
  */
-export function collectMyCoupons(rawText, { now = new Date() } = {}) {
-  const rows = parseMyCouponsMarkdown(rawText);
+export function collectMyCoupons(raw, { now = new Date() } = {}) {
+  const fromJson = collectMyCouponsJson(raw);
+  const rows = fromJson.length
+    ? fromJson
+    : parseMyCouponsMarkdown(raw).map((r) => ({
+        id: "",
+        code: "",
+        name: r.name,
+        value: r.value,
+        valueDesc: "",
+        valueKind: "discount_amount",
+        expireAt: r.expireAt,
+        validFrom: toIso(parseValidFrom(r.expireText)),
+        expireText: r.expireText,
+        dayWindow: r.dayWindow,
+        dayWindows: r.dayWindow ? [r.dayWindow] : [],
+        weekdays: r.weekdays,
+        weekdayText: r.weekdayText,
+        channel: r.channel,
+        labelText: r.labelText,
+        receivedText: r.receivedText,
+      }));
+
   return rows.map((r, i) =>
     decorateCoupon(
       {
-        id: `my-${i}-${r.name}`,
+        id: r.id || `my-${i}-${r.name}`,
+        code: r.code || "",
         name: r.name,
-        value: r.value,
+        value: num(r.value),
+        valueDesc: r.valueDesc || "",
+        valueKind: r.valueKind || "discount_amount",
         threshold: 0,
         expireAt: r.expireAt,
         expireText: r.expireText,
         dayWindow: r.dayWindow,
+        dayWindows: r.dayWindows || [],
         weekdays: r.weekdays,
         weekdayText: r.weekdayText,
         channel: r.channel,
-        validFrom: toIso(parseValidFrom(r.expireText)),
+        validFrom: r.validFrom,
         source: "my",
         status: "已领取",
+        labelText: r.labelText || "",
+        receivedText: r.receivedText || "",
         itemCodes: [],
         stackable: false,
         usableSlots: null,
@@ -147,26 +197,55 @@ export function collectMyCoupons(rawText, { now = new Date() } = {}) {
  *
  * 需要 storeCode。返回的是该门店**当前可用**的券，口径比卡包窄 ——
  * 实测某用户卡包 9 张，同一时刻该门店只认 2 张。两者必须都拉。
+ *
+ * ⚠️ 实测返回 `{ data: [{ title, couponId, couponCode, tradeDateTime, products }] }`，
+ *    业务 JSON 直挂顶层。
  */
-export function collectStoreCoupons(rawText, { now = new Date() } = {}) {
-  const rows = parseMyCouponsMarkdown(rawText);
+export function collectStoreCoupons(raw, { now = new Date() } = {}) {
+  const fromJson = collectStoreCouponsJson(raw);
+  const rows = fromJson.length
+    ? fromJson
+    : parseMyCouponsMarkdown(raw).map((r) => ({
+        id: "",
+        code: "",
+        name: r.name,
+        value: r.value,
+        valueDesc: "",
+        valueKind: "discount_amount",
+        expireAt: r.expireAt,
+        validFrom: toIso(parseValidFrom(r.expireText)),
+        expireText: r.expireText,
+        dayWindow: r.dayWindow,
+        dayWindows: r.dayWindow ? [r.dayWindow] : [],
+        weekdays: r.weekdays,
+        weekdayText: r.weekdayText,
+        channel: r.channel,
+        labelText: r.labelText,
+        itemCodes: [],
+      }));
+
   return rows.map((r, i) =>
     decorateCoupon(
       {
-        id: `store-${i}-${r.name}`,
+        id: r.id || `store-${i}-${r.name}`,
+        code: r.code || "",
         name: r.name,
-        value: r.value,
+        value: num(r.value),
+        valueDesc: r.valueDesc || "",
+        valueKind: r.valueKind || "discount_amount",
         threshold: 0,
         expireAt: r.expireAt,
         expireText: r.expireText,
         dayWindow: r.dayWindow,
+        dayWindows: r.dayWindows || [],
         weekdays: r.weekdays,
         weekdayText: r.weekdayText,
         channel: r.channel,
-        validFrom: toIso(parseValidFrom(r.expireText)),
+        validFrom: r.validFrom,
         source: "store",
         status: "门店可用",
-        itemCodes: [],
+        labelText: r.labelText || "",
+        itemCodes: r.itemCodes || [],
         stackable: false,
         usableSlots: null,
       },
@@ -183,14 +262,22 @@ export function collectStoreCoupons(rawText, { now = new Date() } = {}) {
  *   - my        ：卡包持有券（账户级，含有效期）
  *   - store     ：门店可用券（门店级，口径最窄）
  *
- * 去重键用「券名 + 有效期起止」—— 同一张券在 my 与 store 中都出现时，
- * 保留**信息更全**的那份（store 通常带更精确的门店场景）。
+ * ⚠️ 去重键必须用**结构化的到期时刻** `expireAt`，不能用有效期原文。
+ *    实测（2026-10-23）：同一张券在卡包与门店两路的原文格式不同 ——
+ *      卡包：tradeEndDateTime       → "2026-10-29 23:59:59"
+ *      门店：tradeDateTime（区间）   → "2026-10-23 00:00:00-2026-10-29 23:59:59"
+ *    用原文做键 → 同一张券被算成两张，看板上会出现两条一模一样的券。
+ *    用 expireAt（归一化后的 ISO 时刻）→ 正确合并。
+ *
+ * ⚠️ 也不能用 couponId 去重：实测同一张券两次拉取的 couponId 可能不同
+ *    （卡包用 id，门店用 couponId，值恰好一致但语义不同源）。
  */
 export function mergeCoupons(sources, { now = new Date() } = {}) {
   const all = sources.flat().filter(Boolean);
   const byKey = new Map();
   for (const c of all) {
-    const key = `${c.name}|${c.expireText || ""}`;
+    // 键：券名 + 归一化到期时刻（无到期时刻的券按名称独立计数）
+    const key = `${c.name}|${c.expireAt || "no-expire"}`;
     const prev = byKey.get(key);
     if (!prev) {
       byKey.set(key, c);
@@ -198,7 +285,8 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
     }
     // 已存在同名同期的券：保留信息更全的（字段更非空）
     const score = (x) =>
-      (x.expireText ? 2 : 0) + (x.value > 0 ? 1 : 0) + (x.channel.length ? 1 : 0);
+      (x.expireAt ? 2 : 0) + (x.value > 0 ? 1 : 0) + (x.channel?.length ? 1 : 0) +
+      (x.valueKind === "coupon_price" ? 1 : 0);
     if (score(c) > score(prev)) byKey.set(key, c);
   }
   return [...byKey.values()].map((c) => decorateCoupon(c, { now }));
@@ -213,10 +301,13 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
  *
  * ⚠️ 活动内容里的价格（「9.9元」「13.9r」）是**营销文案**，无法与门店菜单核实，
  *    不可用于任何计算。本函数只取日期与标题，不解析文案里的数值。
+ *
+ * ⚠️ 实测返回 `{ data: { currentTime, dailyList: [...] } }`，业务 JSON 直挂顶层。
  */
-export function collectCampaigns(rawText) {
-  const rows = parseCampaignsMarkdown(rawText);
-  return rows.map((r) => ({
+export function collectCampaigns(raw) {
+  const fromJson = collectCampaignsJson(raw);
+  if (fromJson.length) return fromJson;
+  return parseCampaignsMarkdown(raw).map((r) => ({
     date: r.date,
     phase: r.phase,
     titles: r.titles,
@@ -277,13 +368,22 @@ export function collectPrizes(data) {
  * `query-nearby-stores` → Store[]
  *
  * 该工具**必传 beType + searchType**（官方文档未写明，是实测契约）。
- * 返回的是 text 形态，需从文本里抠出 storeCode 与名称。
+ *
+ * ⚠️ 实测（2026-10-23）：返回 `{ data: [{ storeCode, storeName, address, distance, ... }] }`，
+ *    业务 JSON 直挂顶层。
+ *
+ * ⚠️ `searchType=1`（收藏餐厅）在没有收藏记录时返回
+ *    `{ success:false, code:600050, message:"收藏餐厅列表为空，请您提供城市+关键词进行搜索" }`
+ *    —— **data 缺失，不是错误**。此时降级到 searchType=2（城市+关键词）。
  */
-export function collectStores(rawText) {
-  const s = String(rawText || "");
+export function collectStores(raw) {
+  const fromJson = collectStoresJson(raw);
+  if (fromJson.length) return fromJson;
+
+  // 回退：从 Markdown 文本抠（早期 fixture 形态）
+  const s = String(raw || "");
   const out = [];
   const seen = new Set();
-  // 典型形态：店名(门店编码) 或 店名 | 编码
   const re = /([^|,\n()（）]{2,40}?)\s*[（(]\s*(\d{6,})\s*[)）]/g;
   let m;
   while ((m = re.exec(s)) !== null) {
@@ -291,12 +391,11 @@ export function collectStores(rawText) {
     const storeCode = m[2];
     if (!name || seen.has(storeCode)) continue;
     seen.add(storeCode);
-    out.push({ storeCode, name, address: "", distance: null });
+    out.push({ storeCode, name, address: "", distance: null, beCode: "", businessStatus: null, businessStartTime: "", businessEndTime: "", reservation: false, reservationOptions: [] });
   }
   if (out.length) return out;
-  // 回退：只抠编码
   const codes = s.match(/\b\d{7}\b/g) || [];
-  return codes.map((c) => ({ storeCode: c, name: "", address: "", distance: null }));
+  return codes.map((c) => ({ storeCode: c, name: "", address: "", distance: null, beCode: "", businessStatus: null, businessStartTime: "", businessEndTime: "", reservation: false, reservationOptions: [] }));
 }
 
 /**

@@ -1,0 +1,123 @@
+{
+  "success": true,
+  "code": "REDACTED-CODE",
+  "message": "请求成功",
+  "datetime": "2026-10-23 15:52:43",
+  "traceId": "6acd63bb187db50c5b789bca730f277c",
+  "data": {
+    "coupons": [
+      {
+        "id": "5FBE3138F2B0B0026A2F163B2AE8211F",
+        "code": "REDACTED-CODE",
+        "title": "1024“码”力翻倍",
+        "subtitle": "",
+        "showType": 100,
+        "image": "https://mcd-portal-prod-cos1-1300270282.cos.ap-shanghai.myqcloud.com/campaign/prod/campaign-offer/coupon/338b53ca6a604667b903aac7ccd9ba11/600.png?sign=REDACTED",
+        "bigImage": "https://mcd-portal-prod-cos1-1300270282.cos.ap-shanghai.myqcloud.com/campaign/prod/campaign-offer/coupon/cf2a369c6ff94e0ca972bf5a4274ff22/%E9%BE%99%E7%84%B02%E4%BB%B6%E5%A5%97.jpg?sign=REDACTED",
+        "instructions": {
+          "labels": [
+            {
+              "text": "到店",
+              "color": "#222222",
+              "code": "REDACTED-CODE"
+            }
+          ],
+          "availableTime": [
+            {
+              "text": "2026.10.29 23:59",
+              "color": "#222222",
+              "type": 1
+            },
+            {
+              "text": "到期",
+              "color": "#222222",
+              "type": 2
+            }
+          ]
+        },
+        "discountInfo": {
+          "discountValue": "20.48",
+          "discountDesc": "用券价格",
+          "discountTypePosition": 1,
+          "discountTypeText": "¥"
+        },
+        "tradeStartDate": "2026-10-23",
+        "tradeEndDate": "2026-10-29",
+        "tradeStartDateTime": "2026-10-23 00:00:00",
+        "tradeEndDateTime": "2026-10-29 23:59:59",
+        "weekdays": [],
+        "isAllTradeTime": 0,
+        "tradeTimePeriods": [
+          {
+            "startTime": "10:30:00",
+            "endTime": "23:59:59"
+          }
+        ],
+        "totalCount": 1,
+        "totalAvailableCount": 1,
+        "currentDayAvailableCount": 1,
+        "orderType": 1,
+        "orderTypes": [
+          1
+        ],
+        "tags": [
+          {
+            "type": 2,
+            "value": "pickup",
+            "label": "到店专用",
+            "color": "#FFBC0D"
+          }
+        ],
+        "enable": 1,
+        "filterValues": [],
+        "beType": 1,
+        "beTypes": [
+          1,
+          5
+        ],
+        "promotionId": "112465010",
+        "couponCardType": 0,
+        "mpCouponType": 0,
+        "isPrepaid": 0,
+        "couponPromotionType": 1,
+        "promotionChildrenType": 11,
+        "channels": [
+          "03",
+          "45",
+          "54"
+        ],
+        "isCanGive": 1,
+        "reducePrice": "",
+        "reducePriceText": "",
+        "paymentType": 0,
+        "paymentTypeForSort": 0,
+        "appliedCategory": 0,
+        "ifFreeCoupon": false,
+        "receiveTime": "2026-10-23 12:16:47",
+        "isGiveAway": 0,
+        "shareThemeId": 8,
+        "supportReservation": 0,
+        "supportSoldOut": 1,
+        "jumpUseScenes": [
+          "01"
+        ],
+        "fulfillment": 0,
+        "currentChannelCanRedeem": false,
+        "onlyAppCanRedeem": false,
+        "onlyPosCanRedeem": false,
+        "channelIconUrls": [],
+        "receivedDays": 0,
+        "receivedDaysMsg": "今日收到",
+        "btnText": "查看券详情",
+        "datetimeText": "2026-10-23 00:00-2026-10-29 23:59 10:30-23:59",
+        "bindButtonGif": "https://img.mcd.cn/gallery/5d752bcfd9dbf164.webp",
+        "toastText": "该券仅限麦当劳App使用",
+        "multipleProducts": false
+      }
+    ],
+    "totalCount": 1,
+    "currentPage": 1,
+    "pageSize": 200,
+    "totalPages": 1
+  }
+}

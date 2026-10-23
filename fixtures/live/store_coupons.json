@@ -1,0 +1,22 @@
+{
+  "success": true,
+  "code": "REDACTED-CODE",
+  "message": "请求成功",
+  "datetime": "2026-10-23 15:52:44",
+  "traceId": "ffac5f23b4d5a3525c93a4513447c818",
+  "data": [
+    {
+      "title": "1024“码”力翻倍",
+      "couponId": "5FBE3138F2B0B0026A2F163B2AE8211F",
+      "couponCode": "REDACTED-CODE",
+      "tradeDateTime": "2026-10-23 00:00:00-2026-10-29 23:59:59",
+      "products": [
+        {
+          "productCode": "9900016523",
+          "productName": "龙焰鸡腿堡两件套"
+        }
+      ],
+      "promotionId": "112465010"
+    }
+  ]
+}

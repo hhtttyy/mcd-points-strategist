@@ -401,17 +401,29 @@ node scripts/app/dashboard.mjs --full             # 完整巡检报告
 # 券专项
 node scripts/app/coupon-report.mjs                # 券体检 + 沉默成本 + 用券排程
 
+# 门店
+node scripts/app/stores.mjs list                          # 附近门店（收藏为空时自动降级为位置搜索）
+node scripts/app/stores.mjs list --city 北京 --keyword 六道口
+node scripts/app/stores.mjs pick 1950979                  # 存为常用门店
+node scripts/app/stores.mjs current                       # 查看当前常用门店
+
 # 积分侧分析
 node scripts/points-strategist.mjs              # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 模拟积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
 
-# 自检（共 211 项）
+# 自检（共 281 项）
 node scripts/selftest.mjs               # 算法层 39 项
 node scripts/app/selftest-collect.mjs   # 采集层 65 项
-node scripts/app/selftest-coupon.mjs     # 券引擎 69 项
-node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 38 项
+node scripts/app/selftest-coupon.mjs     # 券引擎 68 项
+node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 45 项
+node scripts/app/selftest-execute.mjs    # 执行层与复盘 31 项
+node scripts/app/selftest-live.mjs       # 真实响应回归 33 项 ★
 ```
+
+> ⚠️ `selftest-live.mjs` 用 `fixtures/live/` 里的**原样真实响应**做回归。
+> 早期只有脱敏重构过的 fixture，解析器在上面全绿、在真实链路上全空 ——
+> 这套测试就是为了守住那条缝。详见 [`fixtures/live/README.md`](fixtures/live/README.md)。
 
 **零依赖**，只需 Node 18+（内置 fetch）。
 

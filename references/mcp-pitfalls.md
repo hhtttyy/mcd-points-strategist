@@ -5,28 +5,58 @@
 >
 > 官方文档只列了 33 个工具名，**没说清楚每个工具实际返回什么** ——
 > 这是本项目最大的隐性成本。
+>
+> ⚠️ 第一节是**2026-10-23 真实调用后修订过的** —— 早期基于脱敏 fixture
+> 得出的结论（"多数工具返回 Markdown"）在真实链路上是错的。
 
 ---
 
-## 一、返回形态：多数工具不是 JSON
+## 一、返回形态：业务 JSON 直挂顶层（2026-10-23 实测修订）⚠️
 
-| 形态 | 工具 | 说明 |
-|---|---|---|
-| `markdown-wrapper` | 绝大多数 | 返回 Markdown 文本，**真 JSON 藏在 `## Original Response` 之后** |
-| `markdown` | `campaign-calendar`、`available-coupons`、`query-my-coupons` | 纯 Markdown，需自行解析 |
-| `text-table` | `list-nutrition-foods` | 逗号分隔文本表格，**不是 JSON** |
-| `empty-cn` | 多数查询工具 | 无数据时返回中文文案（如「暂无可用优惠券」），**不是空数组** |
-| `json` | `order-list`、`query-my-account`、`mall-points-products` | 标准 JSON |
+**实测调用 `https://mcp.mcd.cn` 的返回形态**（不是标准 MCP 信封）：
 
-**解析策略**（见 `scripts/lib/mcp-client.mjs` 的 `unwrap`）：
-
-```js
-if (text.includes("## Original Response")) → 取其后内容尝试 JSON.parse
-else → 尝试整体 JSON.parse
-else → 原样返回文本，交给 collect 层按 Markdown 解析
+```json
+{
+  "success": true,
+  "code": 200,
+  "message": "请求成功",
+  "datetime": "2026-10-23 15:42:51",
+  "traceId": "b4b679797a2761cda4ab1f3195462700",
+  "data": { ... }
+}
 ```
 
-**踩坑后果**：直接 `JSON.parse` 整个响应 → 抛异常 → 采集整体失败。
+**没有** `{ content: [{ type: "text", text: "..." }] }` 这层标准 MCP 信封。
+
+| 工具 | `data` 的形态 | 备注 |
+|---|---|---|
+| `query-my-account` | 对象 | 字段见下 |
+| `mall-points-products` | **数组** | |
+| `query-lottery-info` | 对象 | |
+| `order-list` | `{ list: [...] }` | |
+| `query-my-coupons` | `{ coupons: [...] }` | 券的原生结构化字段在这 |
+| `available-coupons` | **数组** | `{ couponName, couponImage, couponStatus, label }` |
+| `query-store-coupons` | **数组** | `{ title, couponId, couponCode, tradeDateTime, products }` |
+| `campaign-calendar` | `{ currentTime, dailyList: [...] }` | |
+| `query-nearby-stores` | **数组** | 无收藏时 `data` 字段**直接缺失** |
+| `query-promotions` | 数组 | 不在官方 33 工具里，探测发现 |
+
+### 为什么这一条最重要
+
+早期 `rawText()` 只认 `content` 数组，对上述工具**一律返回空字符串**。
+结果：解析器在 fixture 上全绿，在真实链路上**券 0 张 / 活动 0 天 / 门店 0 家**，
+而且**不报错** —— `errors` 数组是空的，看起来一切正常。
+
+这是本项目最隐蔽的一类 bug：**fixture 骗过了所有测试**。
+现在 `fixtures/live/` 保存了原样真实响应，`selftest-live.mjs` 专门守住这条。
+
+### 解析策略（已改为双路兼容）
+
+```js
+// 优先吃 JSON，失败再退回 Markdown（保留给旧 fixture）
+const fromJson = collectXxxJson(raw);   // 真实结构
+const rows = fromJson.length ? fromJson : parseXxxMarkdown(raw);
+```
 
 ---
 
@@ -177,6 +207,120 @@ availablePoint: "376.3"    accumulativePoint: "581.3"    expiredPoint: "17"
 
 **规则**：活动日历只取**日期与标题**，用于做时间线与提醒。
 **绝不把「有活动」等同于「更便宜」** —— 那是两回事。
+
+---
+
+## 九之二、活动标题在 `articleDto` 里，不在 `activityTitle` ⚠️
+
+**2026-10-23 实测**：`campaign-calendar` 的 `dailyList[].events[]` 有 17 个字段，
+但顶层的 `activityTitle` 是**空串**：
+
+```json
+{
+  "activityCode": "m228",
+  "activityTitle": "",        ← 空串
+  "articleDto": {
+    "title": "麦当劳「我就喜欢」限定丝巾正式开售🔥",   ← 标题在这
+    "content": "丝巾搭配棒球帽的潮流谁懂😎...",
+    "highlights": "谁的时尚DNA动了？",
+    "buttonText": "立即抢购"
+  }
+}
+```
+
+**踩坑后果**：读 `activityTitle` → 所有活动标题为空数组 →
+看板上「今日活动 0 个」，但待办里又说「今天有 1 个活动」—— 自相矛盾。
+
+**正确读法**：`e.articleDto.title`（正文用 `e.articleDto.content`）。
+
+> 这也是参考项目 `maimen-butler` 解析 `articleDto` 的原因。
+
+---
+
+## 九之三、`discountDesc: "用券价格"` 是「你付的钱」，不是「省的钱」⚠️
+
+**2026-10-23 实测**：卡包券的 `discountInfo` 明确标注了数字的语义：
+
+```json
+"discountInfo": {
+  "discountValue": "20.48",
+  "discountDesc": "用券价格",     ← 关键
+  "discountTypePosition": 1,
+  "discountTypeText": "¥"
+}
+```
+
+「1024码力翻倍 ¥20.48」= **龙焰鸡腿堡两件套的到手价是 ¥20.48**，
+不是「这张券省了 20.48 元」。
+
+**踩坑后果**：当成减免额 →
+- 沉默成本虚高（把到手价当损失）
+- 临期券折算积分虚高（¥20.48 → 148 积分，与抽奖一次 24 积分比毫无意义）
+- 「同款不同价」判断反向（到手价高的其实是更差的券）
+
+**本项目的处理**：引入独立的 `benefit` 字段。
+
+| `valueKind` | 含义 | `benefit` | 能否参与金额计算 |
+|---|---|---|---|
+| `coupon_price` | 用券价格（你付的） | `null` | ❌ 需菜单原价对比才能算，没有就不算 |
+| `discount_amount` | 减免金额（你省的） | `= value` | ✅ |
+
+**没有原价时一律报「无法推算实际优惠额」，绝不编造。**
+
+---
+
+## 九之四、券的原生结构化字段（不用从文本正则抠）
+
+**2026-10-23 实测**：`query-my-coupons` 的券对象带完整原生字段：
+
+| 字段 | 内容 | 例 |
+|---|---|---|
+| `tradeStartDateTime` / `tradeEndDateTime` | 精确到秒的起止 | `"2026-10-29 23:59:59"` |
+| `tradeTimePeriods[]` | 每日可用时段 | `[{ startTime: "10:30:00", endTime: "23:59:59" }]` |
+| `weekdays[]` + `isAllTradeTime` | 星期限制（空数组 = 不限） | `[]` |
+| `instructions.labels[].text` | 渠道标签 | `"到店"` |
+| `discountInfo` | 面值 + **语义** | 见上一节 |
+| `totalCount` | 该券的张数 | `1` |
+
+**对比从 Markdown 抠「有效期」那行**：
+```
+2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59
+```
+星期与时段混在同一串文本里，单日券（`2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29`）
+与多日券的语义完全不同，极易判错。**原生字段没有这个问题。**
+
+---
+
+## 九之五、门店搜索：收藏为空是正常态，不是错误
+
+`query-nearby-stores` 的 `searchType` 决定行为：
+
+| searchType | 必传参数 | 实测行为 |
+|---|---|---|
+| `1` | `beType` | 收藏餐厅。**没有收藏时返回** `success:false, code:600050, message:"收藏餐厅列表为空…"` —— **`data` 字段直接缺失** |
+| `2` | `beType` + `city` + `keyword` | 按位置搜索 |
+
+**踩坑后果**：把 `code:600050` 当错误 → 门店列表永远为空 → 门店券与门店促销全拉不到。
+
+**正确做法**：`collectStores` 对空 `data` 返回空数组（不抛错），
+`stores.mjs` 检测到空则**自动降级**为位置搜索，并提示用户。
+
+---
+
+## 九之六、券的去重键必须用结构化到期时刻
+
+**2026-10-23 实测**：同一张券在卡包与门店两路的 `tradeDateTime` 原文格式不同：
+
+| 来源 | 字段 | 原文 |
+|---|---|---|
+| 卡包 | `tradeEndDateTime` | `"2026-10-29 23:59:59"` |
+| 门店 | `tradeDateTime`（区间） | `"2026-10-23 00:00:00-2026-10-29 23:59:59"` |
+
+**用原文做去重键 → 同一张券被算成两张**，看板上会出现两条一模一样的券。
+
+**正确做法**：去重键用**归一化后的 `expireAt`（ISO 时刻）**，不是原文。
+
+⚠️ 也**不能**用 `couponId` 去重：卡包用 `id`、门店用 `couponId`，语义不同源。
 
 ---
 

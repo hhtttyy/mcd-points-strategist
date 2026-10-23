@@ -1,0 +1,118 @@
+{
+  "success": true,
+  "code": "REDACTED-CODE",
+  "message": "请求成功",
+  "datetime": "2026-10-23 15:52:44",
+  "traceId": "3b652c80a001047513ea910455888aa6",
+  "data": [
+    {
+      "storeCode": "1950979",
+      "storeName": "麦当劳北京六道口一号(地铁A口)餐厅",
+      "address": "清华东路25号1号楼1107-1108室 ",
+      "distance": 71,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "23:00",
+      "longitude": 0,
+      "latitude": 0,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-23",
+          "today": true,
+          "reservationOptionText": "下午茶(14:44至16:45)，夜市(17:14至21:45)，宵夜(22:14至22:46)"
+        },
+        {
+          "date": "2026-10-24",
+          "today": false,
+          "reservationOptionText": "早餐(07:14至10:15)，午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至21:45)，宵夜(22:14至22:46)"
+        }
+      ]
+    },
+    {
+      "storeCode": "1950699",
+      "storeName": "麦当劳北京六道口餐厅",
+      "address": "清华东路15号1号楼",
+      "distance": 595,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "22:00",
+      "longitude": 0,
+      "latitude": 0,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-23",
+          "today": true,
+          "reservationOptionText": "下午茶(14:44至16:45)，夜市(17:14至21:45)"
+        },
+        {
+          "date": "2026-10-24",
+          "today": false,
+          "reservationOptionText": "早餐(07:14至10:15)，午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至21:45)"
+        }
+      ]
+    },
+    {
+      "storeCode": "1950956",
+      "storeName": "麦当劳北京林业大学餐厅",
+      "address": "北京林业大学新建学生公寓配套服务用房101-2号",
+      "distance": 680,
+      "businessStatus": true,
+      "businessStartTime": "06:30",
+      "businessEndTime": "23:00",
+      "longitude": 0,
+      "latitude": 0,
+      "reservation": false,
+      "reservationTimeOptions": []
+    },
+    {
+      "storeCode": "1950037",
+      "storeName": "麦当劳北京成府路餐厅",
+      "address": "学院路29号",
+      "distance": 862,
+      "businessStatus": true,
+      "businessStartTime": "07:00",
+      "businessEndTime": "02:00",
+      "longitude": 0,
+      "latitude": 0,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-23",
+          "today": true,
+          "reservationOptionText": "下午茶(14:44至16:45)，夜市(17:14至21:45)"
+        },
+        {
+          "date": "2026-10-24",
+          "today": false,
+          "reservationOptionText": "早餐(07:14至10:15)，午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至21:45)"
+        }
+      ]
+    },
+    {
+      "storeCode": "1950917",
+      "storeName": "麦当劳北京石板房南路餐厅",
+      "address": "学院路甲5号15号平房一层",
+      "distance": 952,
+      "businessStatus": false,
+      "businessStartTime": "07:00",
+      "businessEndTime": "23:00",
+      "longitude": 0,
+      "latitude": 0,
+      "reservation": true,
+      "reservationTimeOptions": [
+        {
+          "date": "2026-10-23",
+          "today": true,
+          "reservationOptionText": "下午茶(14:44至16:45)，夜市(17:14至21:45)，宵夜(22:14至22:46)"
+        },
+        {
+          "date": "2026-10-24",
+          "today": false,
+          "reservationOptionText": "早餐(07:14至10:15)，午餐(10:44至14:15)，下午茶(14:44至16:45)，夜市(17:14至21:45)，宵夜(22:14至22:46)"
+        }
+      ]
+    }
+  ]
+}

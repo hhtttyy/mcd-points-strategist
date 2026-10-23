@@ -120,16 +120,27 @@ export function renderDashboard(input = {}, opts = {}) {
 
   // ══ 券包 ══
   if (audit.total) {
-    L.push(`🎫 **券包** ${audit.total} 张 · 面值 ¥${audit.totalValue}`);
+    // ⚠️ 只有能确证优惠额的券才计入金额合计。
+    //    coupon_price 语义的券（用券价格 = 到手价）不能算作「省了 X 元」。
+    const moneyNote = audit.silent.priceOnlyCount
+      ? ` · ${audit.silent.priceOnlyCount} 张仅显示到手价（未计入金额）`
+      : "";
+    L.push(`🎫 **券包** ${audit.total} 张 · 可确证优惠 ¥${audit.totalValue}${moneyNote}`);
     const risky = audit.silent.atRiskItems.filter((x) => x.daysLeft >= 0 && x.daysLeft <= 7);
     const unusable = audit.unusable;
     const show = [...risky.slice(0, 4), ...unusable.slice(0, 2)].slice(0, 5);
     for (const item of show) {
       const tag = item.usableReason || (item.usableDays !== null ? `仅 ${item.usableDays} 天能用` : "");
+      // 到手价券显示「到手价 ¥X」，优惠额券显示「省 ¥X」—— 语义不能混
+      const priceText = item.benefitKnown
+        ? `省 ¥${item.benefit}`
+        : item.value > 0
+          ? `到手价 ¥${item.value}`
+          : "面值未知";
       if (item.daysLeft !== undefined && item.daysLeft >= 0 && item.daysLeft <= 7) {
-        L.push(`　 ⏰ ${item.name} ¥${item.value} 剩 ${item.daysLeft} 天${tag ? ` · ${tag}` : ""}`);
+        L.push(`　 ⏰ ${item.name} ${priceText} 剩 ${item.daysLeft} 天${tag ? ` · ${tag}` : ""}`);
       } else {
-        L.push(`　 ⏰ ${item.name} ¥${item.value} · ${item.reason}`);
+        L.push(`　 ⏰ ${item.name} ${priceText} · ${item.reason}`);
       }
     }
     if (audit.unclaimed.length) {
@@ -137,6 +148,19 @@ export function renderDashboard(input = {}, opts = {}) {
     }
     if (audit.duplicates.length) {
       L.push(`　 💰 同款不同价 ${audit.duplicates.length} 组，可省 ¥${audit.duplicates[0].waste}`);
+    }
+    // ⚠️ 关键判断：券的有效期 vs 你的点餐节奏。
+    //    实测（2026-10-23 真实数据）：券 10-29 到期，而按历史节奏（7 天一次）
+    //    下次点餐在 10-30 —— **按平时的节奏等下去就会白白过期**。
+    //    这句话比「还剩 7 天」有用得多：它改变的是「什么时候去」。
+    if (forecast.cadenceDays && risky.length) {
+      const finite = risky.map((x) => x.daysLeft).filter((n) => Number.isFinite(n));
+      const shortest = finite.length ? Math.min(...finite) : null;
+      if (shortest !== null && shortest <= forecast.cadenceDays) {
+        L.push(
+          `　 ⚠️ 你的点餐节奏约 ${forecast.cadenceDays} 天一次，而最短的券 ${shortest} 天后过期 —— 按老节奏等就会作废`
+        );
+      }
     }
     L.push("");
   }

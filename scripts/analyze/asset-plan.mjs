@@ -232,24 +232,47 @@ export function planAssetAllocation(input = {}, opts = {}) {
     return d >= 0 && d <= (opts.expiringWithinDays ?? 7);
   });
   if (expiringCoupons.length) {
-    const totalValue = round(expiringCoupons.reduce((s, c) => s + (c.value || 0), 0));
+    // ⚠️ 只用 `benefit`（可确证的优惠金额）折算积分。
+    //    coupon_price 语义的券（用券价格 = 到手价）benefit 为 null ——
+    //    把到手价当优惠额折算，会得出「这张券值 148 积分」的荒谬结论。
+    //    这类券只能提示「尽快用掉」，不能参与金额折算。
+    const isKnown = (c) =>
+      c.benefitKnown !== undefined
+        ? c.benefitKnown === true
+        : c.valueKind !== "coupon_price" && Number(c.value) > 0;
+    const valuable = expiringCoupons.filter(isKnown);
+    const totalValue = round(valuable.reduce((s, c) => s + (Number(c.value) || 0), 0));
     const totalPoints = round(
-      expiringCoupons.reduce(
-        (s, c) => s + (yuanToPoints(c.value || 0, shadow.price) || 0),
+      valuable.reduce(
+        (s, c) => s + (yuanToPoints(Number(c.value) || 0, shadow.price) || 0),
         0
       ),
       1
     );
+    const unquantified = expiringCoupons.length - valuable.length;
+
     actions.push({
       type: "coupon_expiring",
       priority: 2,
-      title: `${expiringCoupons.length} 张券 7 天内过期（面值 ¥${totalValue}）`,
+      title:
+        valuable.length > 0
+          ? `${expiringCoupons.length} 张券 7 天内过期（可确证优惠 ¥${totalValue}）`
+          : `${expiringCoupons.length} 张券 7 天内过期`,
       detail: expiringCoupons
         .map((c) => `${c.name}${c.usableSlots !== null ? `（仅 ${c.usableSlots} 天能用）` : ""}`)
         .join("、"),
       cost: { points: 0, yuan: 0 },
-      gain: { yuan: totalValue, points: totalPoints },
-      reason: `这些券合计约等于 ${totalPoints} 积分，按影子价格 ¥${shadow.price.toFixed(4)}/分 折算`,
+      gain: {
+        yuan: totalValue,
+        points: totalPoints,
+        // 无法折算的张数 —— 渲染层要单独说明，不能混进金额
+        unquantified: unquantified,
+      },
+      reason:
+        valuable.length > 0
+          ? `这些券合计约等于 ${totalPoints} 积分，按影子价格 ¥${shadow.price.toFixed(4)}/分 折算` +
+            (unquantified ? `；另有 ${unquantified} 张只能看到用券价格，未折算` : "")
+          : "这些券只能看到用券价格（到手价），无法推算实际优惠额，但同样会过期 —— 尽快用掉",
     });
   }
 
@@ -314,11 +337,15 @@ export function planAssetAllocation(input = {}, opts = {}) {
   const todayStr = now.toISOString().slice(0, 10);
   const todayCampaigns = campaigns.filter((c) => c.date === todayStr);
   if (todayCampaigns.length) {
+    // ⚠️ 口径一致性：这里数的是**活动条数**（一天可能有多个活动），
+    //    不是天数。看板的「今日活动 N 个」也是条数 —— 两边必须一致，
+    //    否则会出现「今日活动 14 个」但待办说「今天有 1 个活动」的自相矛盾。
+    const todayTitles = todayCampaigns.flatMap((c) => c.titles || []);
     actions.push({
       type: "campaign",
       priority: 5,
-      title: `今天有 ${todayCampaigns.length} 个活动`,
-      detail: todayCampaigns.flatMap((c) => c.titles || []).slice(0, 5).join("、"),
+      title: `今天有 ${todayTitles.length} 个活动`,
+      detail: todayTitles.slice(0, 5).join("、"),
       cost: { points: 0, yuan: 0 },
       gain: { yuan: null, note: "活动文案里的价格不可核实，不计入计算" },
       reason: "活动与券的有效期对起来看 —— 券撑不撑得到活动那天",
