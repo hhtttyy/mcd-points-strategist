@@ -1,0 +1,7 @@
+node_modules/
+.env
+.DS_Store
+*.log
+# 严禁提交真实 Token
+mcp-config.json
+snapshot.local.json

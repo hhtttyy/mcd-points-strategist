@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>麦麦积分资产管家 · 算清你的积分</title>
+<meta name="description" content="基于麦当劳 MCP 真实数据的积分资产分析器：诊断积分衰减、算出兑换档位真实收益率、避开已下架陷阱、求解最优兑换组合。无需登录，拖动滑块即出结论。">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #faf9f7;
+    --bg-raised: #f1efe8;
+    --ink: #2c2c2a;
+    --ink-2: #5f5e5a;
+    --ink-3: #888780;
+    --line: rgba(0,0,0,.1);
+    --line-2: rgba(0,0,0,.16);
+    --amber: #ba7517;
+    --amber-bg: #faeeda;
+    --red: #a32d2d;
+    --red-bg: #fcebeb;
+    --teal: #0f6e56;
+    --teal-bg: #e1f5ee;
+    --blue: #185fa5;
+    --blue-bg: #e6f1fb;
+    --gray-ramp: #d3d1c7;
+    --r: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 15px; line-height: 1.65; -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px 72px; }
+
+  header { padding: 52px 0 30px; border-bottom: 1px solid var(--line); margin-bottom: 34px; }
+  .eyebrow { font-size: 12.5px; color: var(--ink-3); letter-spacing: .06em; margin-bottom: 10px; }
+  h1 { font-size: 30px; font-weight: 600; margin: 0 0 12px; letter-spacing: -.01em; }
+  .lede { font-size: 16px; color: var(--ink-2); max-width: 660px; margin: 0; }
+
+  h2 { font-size: 19px; font-weight: 600; margin: 44px 0 6px; }
+  h2 .num { color: var(--ink-3); font-weight: 400; margin-right: 10px; font-variant-numeric: tabular-nums; }
+  .sub { color: var(--ink-2); font-size: 14px; margin: 0 0 18px; }
+
+  .card { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--r); padding: 20px 22px; }
+  .grid { display: grid; gap: 14px; }
+  .g2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .g4 { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+
+  .stat { background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--r); padding: 15px 16px; }
+  .stat .k { font-size: 12.5px; color: var(--ink-3); margin-bottom: 5px; }
+  .stat .v { font-size: 27px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .stat .u { font-size: 13px; color: var(--ink-3); font-weight: 400; margin-left: 3px; }
+  .stat .d { font-size: 12.5px; color: var(--ink-2); margin-top: 4px; }
+  .stat.warn { background: var(--red-bg); border-color: rgba(163,45,45,.22); }
+  .stat.warn .v { color: var(--red); }
+  .stat.good { background: var(--teal-bg); border-color: rgba(15,110,86,.22); }
+  .stat.good .v { color: var(--teal); }
+  .stat.info { background: var(--blue-bg); border-color: rgba(24,95,165,.22); }
+  .stat.info .v { color: var(--blue); }
+
+  .bar { height: 9px; background: var(--bg-raised); border-radius: 5px; overflow: hidden; display: flex; margin: 9px 0 7px; }
+  .bar > i { display: block; height: 100%; }
+  .bar .live { background: var(--teal); }
+  .bar .exp { background: #e24b4a; }
+  .legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--ink-2); }
+  .legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: baseline; }
+  .legend .l-live::before { background: var(--teal); }
+  .legend .l-exp::before { background: #e24b4a; }
+  .legend .l-use::before { background: var(--blue); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-weight: 500; color: var(--ink-3); font-size: 12.5px; padding: 0 10px 9px 0; border-bottom: 1px solid var(--line-2); }
+  td { padding: 10px 10px 10px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 0; }
+  tr.best td { background: var(--teal-bg); }
+  tr.expired td { opacity: .48; text-decoration: line-through; }
+  .tag { display: inline-block; font-size: 11.5px; padding: 2px 7px; border-radius: 4px; background: var(--bg-raised); color: var(--ink-2); margin-left: 6px; }
+  .tag.t-bad { background: var(--red-bg); color: var(--red); }
+  .tag.t-ok { background: var(--teal-bg); color: var(--teal); }
+
+  .bar-row { display: flex; align-items: center; gap: 10px; margin: 7px 0; }
+  .bar-row .lbl { font-size: 13px; width: 108px; flex-shrink: 0; color: var(--ink-2); }
+  .bar-row .track { flex: 1; height: 16px; background: var(--bg-raised); border-radius: 4px; overflow: hidden; }
+  .bar-row .fill { height: 100%; background: var(--teal); border-radius: 4px; }
+  .bar-row .fill.warn { background: var(--amber); }
+  .bar-row .val { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-2); width: 68px; text-align: right; flex-shrink: 0; }
+
+  .ctrl { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+  .ctrl label { font-size: 13.5px; color: var(--ink-2); min-width: 84px; }
+  input[type=range] { flex: 1; min-width: 200px; accent-color: var(--teal); }
+  .ctrl .rv { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 74px; text-align: right; }
+
+  .alert { border-radius: var(--r); padding: 15px 17px; margin: 14px 0; font-size: 14px; }
+  .alert.r { background: var(--red-bg); border: 1px solid rgba(163,45,45,.22); color: #7a2020; }
+  .alert.a { background: var(--amber-bg); border: 1px solid rgba(186,117,23,.25); color: #6d4409; }
+  .alert.t { background: var(--teal-bg); border: 1px solid rgba(15,110,86,.22); color: #0b5342; }
+  .alert b { font-weight: 600; }
+
+  ol.actions { list-style: none; padding: 0; margin: 0; counter-reset: act; }
+  ol.actions li { counter-increment: act; position: relative; padding: 15px 18px 15px 54px; border-bottom: 1px solid var(--line); }
+  ol.actions li:last-child { border-bottom: none; }
+  ol.actions li::before {
+    content: counter(act); position: absolute; left: 16px; top: 15px;
+    width: 24px; height: 24px; border-radius: 50%; background: var(--bg-raised);
+    color: var(--ink-2); font-size: 13px; font-weight: 600; display: grid; place-items: center;
+  }
+  ol.actions .t { font-weight: 600; margin-bottom: 3px; }
+  ol.actions .d { font-size: 13.5px; color: var(--ink-2); }
+  ol.actions .r { font-size: 13px; color: var(--ink-3); margin-top: 4px; }
+
+  .score-ring { display: flex; align-items: center; gap: 20px; }
+  .ring { width: 96px; height: 96px; flex-shrink: 0; }
+  .ring circle { fill: none; stroke-width: 9; }
+  .ring .bg { stroke: var(--bg-raised); }
+  .ring .fg { stroke: var(--teal); stroke-linecap: round; transition: stroke-dashoffset .5s ease; }
+  .ring text { font-size: 25px; font-weight: 600; fill: var(--ink); }
+
+  .dims { display: grid; gap: 11px; flex: 1; }
+  .dim { display: grid; grid-template-columns: 78px 1fr 46px; gap: 10px; align-items: center; font-size: 13px; }
+  .dim .n { color: var(--ink-2); }
+  .dim .t { height: 7px; background: var(--bg-raised); border-radius: 4px; overflow: hidden; }
+  .dim .t i { display: block; height: 100%; background: var(--blue); }
+  .dim .p { text-align: right; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  footer { margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line); font-size: 13px; color: var(--ink-3); }
+  footer a { color: var(--ink-2); }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--bg-raised); padding: 1.5px 5px; border-radius: 4px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  @media (max-width: 640px) {
+    header { padding: 32px 0 22px; }
+    h1 { font-size: 24px; }
+    .bar-row .lbl { width: 84px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">麦当劳程序员创意开发大赛参赛作品 · 非麦当劳官方产品</div>
+  <h1>你的积分不是攒出来的，是漏掉的</h1>
+  <p class="lede">
+    基于麦当劳中国 MCP 实时数据（2026-10-23 采样）的积分资产分析器。
+    拖动滑块模拟你的积分余额，立刻看清：积分衰减了多少、兑换档位哪个真划算、
+    有没有在为早已结束的活动白攒分、以及最优兑换组合怎么选。
+  </p>
+</header>
+
+<h2><span class="num">01</span>你的积分健康度</h2>
+<p class="sub">四项加权：积分存活率 40%、余额变现率 25%、兑换效率 25%、临期安全度 10%</p>
+
+<div class="card">
+  <div class="score-ring">
+    <svg class="ring" viewBox="0 0 100 100" role="img" aria-label="积分健康度评分">
+      <circle class="bg" cx="50" cy="50" r="40"></circle>
+      <circle class="fg" id="ringFg" cx="50" cy="50" r="40"
+              stroke-dasharray="251.3" stroke-dashoffset="251.3"
+              transform="rotate(-90 50 50)"></circle>
+      <text x="50" y="50" text-anchor="middle" dominant-baseline="central" id="ringTxt">12</text>
+    </svg>
+    <div class="dims" id="dims"></div>
+  </div>
+</div>
+
+<div class="grid g4" style="margin-top:14px" id="stats"></div>
+
+<div class="alert r" id="decayAlert"></div>
+
+<h2><span class="num">02</span>兑换档位的真实收益率</h2>
+<p class="sub">
+  密度 = 面值 ÷ 所需积分（元/积分）。麦当劳的档位不是等价的 —— 攒得越多，单分换得越少。
+</p>
+
+<div class="card">
+  <div class="ctrl">
+    <label for="budget">模拟可用积分</label>
+    <input type="range" id="budget" min="0" max="1200" step="0.5" value="33.5">
+    <span class="rv" id="budgetVal">33.5 分</span>
+  </div>
+  <div id="densityChart"></div>
+  <div id="decayNote"></div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <table>
+    <thead>
+      <tr>
+        <th>兑换标的</th>
+        <th class="num">所需积分</th>
+        <th class="num">面值</th>
+        <th class="num">密度(元/分)</th>
+        <th>状态</th>
+      </tr>
+    </thead>
+    <tbody id="mallBody"></tbody>
+  </table>
+</div>
+
+<h2><span class="num">03</span>最优兑换组合</h2>
+<p class="sub">0/1 背包求解（每件商品单独成单），在积分预算内最大化现金价值</p>
+<div class="card" id="planCard"></div>
+
+<h2><span class="num">04</span>你的行动清单</h2>
+<p class="sub">按「即时收益 ÷ 成本」排序：先做零成本且能避免损失的动作</p>
+<div class="card">
+  <ol class="actions" id="actions"></ol>
+</div>
+
+<footer>
+  <p>
+    数据来源：麦当劳中国 MCP Server（<code>query-my-account</code>、<code>mall-points-products</code>、
+    <code>query-lottery-info</code>、<code>available-coupons</code>、<code>now-time-info</code>），
+    2026-10-23 采样并脱敏。分析引擎与 Skill CLI 共用同一份实现。
+  </p>
+  <p>
+    本项目为<strong>非麦当劳官方产品</strong>，输出仅供参考，不构成财务或消费建议。
+    积分与商品数据以麦当劳官方渠道实时结果为准，实际兑换请在麦麦商城 / App 内操作。
+    <br>
+    <a href="https://github.com/hantianyi/mcd-points-strategist">GitHub 源码</a> ·
+    <a href="https://github.com/M-China/mcd-developer-innovation-challenge">比赛仓库</a>
+  </p>
+</footer>
+
+</div>
+
+<script type="module">
+import * as E from "../scripts/points-engine.mjs";
+
+// 数据来源：真实 MCP 采集快照（脱敏）。直接读取 fixtures 而非硬编码，
+// 保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
+const SNAP = await (await fetch("../fixtures/mcd-snapshot.json")).json();
+
+const NOW = new Date(SNAP._generatedAt);
+const $ = (id) => document.getElementById(id);
+// 整数分不显示小数位；有小数时保留最多 2 位（729.5 不能被截成 730）
+const fmt = (n) => {
+  const v = Number(n);
+  return Number.isInteger(v) ? String(v) : v.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+};
+
+function render() {
+  const budget = Number($("budget").value);
+  $("budgetVal").textContent = fmt(budget) + " 分";
+
+  const account = { ...SNAP.account, availablePoint: budget };
+  const health = E.scoreHealth(account, SNAP.mall);
+  const ranked = E.rankByDensity(SNAP.mall, NOW);
+  const trap = E.detectDelistedTrap(SNAP.mall, NOW);
+  const deadlock = E.detectDeadlock(account, SNAP.mall);
+  const plan = E.solveRedeemPlan(SNAP.mall, budget, { now: NOW });
+  const lottery = E.compareLotteryVsRedeem({ availablePoint: budget, lottery: SNAP.lottery, mall: SNAP.mall });
+  const actions = E.buildActionPlan({ account, mall: SNAP.mall, lottery: SNAP.lottery, coupons: SNAP.coupons });
+
+  // 健康度环
+  const circ = 251.3;
+  const fg = $("ringFg");
+  fg.style.strokeDashoffset = String(circ * (1 - health.score / 100));
+  fg.style.stroke = health.score >= 75 ? "#0f6e56" : health.score >= 50 ? "#378add" : health.score >= 25 ? "#ba7517" : "#a32d2d";
+  $("ringTxt").textContent = health.score;
+  $("ringTxt").setAttribute("aria-label", `健康度 ${health.score} 分，${health.grade}`);
+
+  $("dims").innerHTML = Object.values(health.dims).map(d => `
+    <div class="dim">
+      <span class="n">${d.label}</span>
+      <span class="t"><i style="width:${(d.value * 100).toFixed(1)}%"></i></span>
+      <span class="p">${(d.value * 100).toFixed(0)}%</span>
+    </div>`).join("");
+
+  // 关键指标
+  const acc = health.totals.accumulative, avail = health.totals.available, exp = health.totals.expired;
+  const usedPct = acc ? (avail / acc) * 100 : 0;
+  const expPct = acc ? (exp / acc) * 100 : 0;
+  $("stats").innerHTML = `
+    <div class="stat ${health.score < 25 ? "warn" : "good"}">
+      <div class="k">积分健康度</div>
+      <div class="v">${health.score}<span class="u">/100</span></div>
+      <div class="d">${health.grade}</div>
+    </div>
+    <div class="stat info">
+      <div class="k">累计获得</div>
+      <div class="v">${fmt(acc)}</div>
+      <div class="d">积分</div>
+    </div>
+    <div class="stat ${exp > 0 ? "warn" : ""}">
+      <div class="k">已过期</div>
+      <div class="v">${fmt(exp)}</div>
+      <div class="d">衰减率 ${(health.decayRate * 100).toFixed(1)}%</div>
+    </div>
+    <div class="stat ${avail < 50 ? "warn" : "good"}">
+      <div class="k">当前可用</div>
+      <div class="v">${fmt(avail)}</div>
+      <div class="d">${avail < 50 ? "低于最低兑换门槛 50 分" : "可兑换在售标的"}</div>
+    </div>`;
+
+  $("decayAlert").innerHTML = exp > 0
+    ? `<b>${fmt(exp)} 积分已经过期</b>，占累计的 ${(health.decayRate * 100).toFixed(1)}%。你的问题不是攒得少，而是攒了没用 —— 兑换门槛 50 分，余额长期停在 ${fmt(avail)} 分，差额太小导致永远攒不到也换不掉。`
+    : `<b>暂无过期积分</b>，继续保持。`;
+
+  // 密度条形图
+  const maxD = Math.max(...ranked.map(r => r.density), 0.0001);
+  $("densityChart").innerHTML = ranked.map(r => {
+    const reach = r.point <= budget;
+    const pct = (r.density / maxD) * 100;
+    return `<div class="bar-row">
+      <span class="lbl">${r.point} 分</span>
+      <span class="track"><i class="fill ${reach ? "" : "warn"}" style="width:${pct.toFixed(1)}%"></i></span>
+      <span class="val">${r.density.toFixed(4)}</span>
+    </div>`;
+  }).join("");
+
+  const redeemable = ranked.filter(r => r.redeemable);
+  if (redeemable.length >= 2) {
+    const b = redeemable[0], w = redeemable[redeemable.length - 1];
+    $("decayNote").innerHTML = `<div class="alert a" style="margin-bottom:0">
+      <b>边际收益率递减 ${(b.density / w.density).toFixed(1)} 倍</b> ——
+      最优档 ${b.point} 分（${b.density.toFixed(4)} 元/分）vs 最差档 ${w.point} 分（${w.density.toFixed(4)} 元/分）。
+      攒 ${w.point} 分换那件 ${w.cashValue} 元商品是最差决策：同样 ${w.point} 分能换
+      ${Math.floor(w.point / b.point)} 件 ${b.cashValue} 元券（面值 ${(Math.floor(w.point / b.point) * b.cashValue).toFixed(1)} 元）。
+    </div>`;
+  }
+
+  // 商城表
+  const allSorted = [...SNAP.mall].sort((a, b) => {
+    const da = a.point > 0 && a.status === "live" ? a.faceValue / a.point : -1;
+    const db = b.point > 0 && b.status === "live" ? b.faceValue / b.point : -1;
+    if (db !== da) return db - da;
+    return a.point - b.point;
+  });
+  const bestD = ranked.length ? ranked[0].density : 0;
+  $("mallBody").innerHTML = allSorted.map(it => {
+    const live = it.point > 0 && it.status === "live";
+    const d = live ? it.faceValue / it.point : 0;
+    const isBest = live && Math.abs(d - bestD) < 1e-9;
+    let status;
+    if (it.point === 0) status = '<span class="tag">现金购买</span>';
+    else if (it.status !== "live") status = '<span class="tag t-bad">已下架</span>';
+    else if (it.point > budget) status = `<span class="tag">需再攒 ${it.point - budget} 分</span>`;
+    else status = '<span class="tag t-ok">可兑换</span>';
+    return `<tr class="${isBest ? "best" : ""} ${it.status !== "live" && it.point > 0 ? "expired" : ""}">
+      <td>${it.spuName}${isBest ? '<span class="tag t-ok">最高密度</span>' : ""}</td>
+      <td class="num">${it.point}</td>
+      <td class="num">${it.point > 0 ? "¥" + it.faceValue.toFixed(1) : "—"}</td>
+      <td class="num">${live ? d.toFixed(4) : "—"}</td>
+      <td>${status}</td>
+    </tr>`;
+  }).join("");
+
+  // 兑换方案
+  let planHTML;
+  if (plan.plan.length) {
+    planHTML = `<div class="alert t"><b>最优组合：${plan.plan.length} 件，实得 ¥${plan.totalCash.toFixed(2)}</b>，
+      实付 ${plan.totalPoint} 分（密度 ${plan.density.toFixed(4)} 元/分），剩余 ${plan.leftover} 分。</div>
+      <table><thead><tr><th>兑换品</th><th class="num">积分</th><th class="num">面值</th><th class="num">密度</th></tr></thead><tbody>
+      ${plan.plan.map(p => `<tr><td>${p.spuName}</td><td class="num">${p.point}</td><td class="num">¥${p.cashValue.toFixed(1)}</td><td class="num">${p.density.toFixed(4)}</td></tr>`).join("")}
+      </tbody></table>`;
+  } else {
+    planHTML = `<div class="alert r"><b>${plan.note}</b><br>
+      当前可用 ${fmt(budget)} 分，最低在售兑换门槛为 50 分。${deadlock.deadlocked && deadlock.nearest
+      ? `补差 <b>¥${E.planToTarget(deadlock.nearest, budget, 1).spendNeeded.toFixed(1)}</b> 即可解锁「${deadlock.nearest.spuName}」。`
+      : ""}</div>`;
+  }
+  if (plan.frontier && plan.frontier.length > 1) {
+    planHTML += `<div style="margin-top:16px"><div style="font-size:13px;color:var(--ink-2);margin-bottom:8px">
+      <strong>帕累托前沿</strong>（权衡「花多少分」与「换多少面值」，非支配解）</div>
+      <table><thead><tr><th>方案</th><th class="num">积分</th><th class="num">面值</th></tr></thead><tbody>
+      ${plan.frontier.map(f => `<tr><td>${f.spuName}</td><td class="num">${f.point}</td><td class="num">¥${f.cashValue.toFixed(1)}</td></tr>`).join("")}
+      </tbody></table></div>`;
+  }
+  $("planCard").innerHTML = planHTML;
+
+  // 行动清单
+  $("actions").innerHTML = actions.map(a => `
+    <li>
+      <div class="t">${a.title}</div>
+      <div class="d">${a.detail}</div>
+      <div class="r">理由：${a.reason}</div>
+    </li>`).join("");
+
+  // 抽奖提示
+  if (lottery.available && lottery.maxDraws > 0) {
+    $("actions").insertAdjacentHTML("afterend",
+      `<div class="alert a" style="margin-top:14px"><b>抽奖 vs 兑换</b> ——
+      单抽 ${lottery.drawPoint} 分，可抽 ${lottery.maxDraws} 次；同额积分直接兑换约值 ¥${lottery.redeemValue.toFixed(2)}。
+      MCP 未提供奖品概率分布，故不给出期望值 —— 盈亏平衡点：抽中最高价值奖品概率需 &gt; 5.2% 才不劣于兑换。</div>`);
+  }
+}
+
+$("budget").addEventListener("input", render);
+render();
+</script>
+</body>
+</html>
