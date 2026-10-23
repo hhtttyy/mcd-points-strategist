@@ -24,8 +24,8 @@
 | `nextMouthExpirePoint` | 下月将过期积分 |
 | `currency` | 货币类型（麦享会积分） |
 
-> 实测样例：`availablePoint=33.5, accumulativePoint=763, expiredPoint=729.5, usedPoint=0`
-> → 衰减率 95.6%，可用余额 4.4%。
+> 实测样例：`availablePoint=120.5, accumulativePoint=1840, expiredPoint=1100, usedPoint=620`
+> → 衰减率 59.8%，可用余额 6.5%。
 
 ### `mall-points-products` —— 积分商城
 

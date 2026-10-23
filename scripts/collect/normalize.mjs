@@ -73,14 +73,36 @@ function normalizeMallItem(m) {
 /** 积分账户：availablePoint → available 等 */
 function normalizeAccount(a) {
   if (!a) return null;
+  // ⚠️ 同时输出**新旧两套字段名**。
+  //    新契约用 available/accumulative/used/expired，
+  //    而 `points-engine.mjs`（浏览器 Demo 与早期 CLI 共用）读的是
+  //    availablePoint/accumulativePoint/expiredPoint。
+  //    只输出新名会让 Demo 的「累计获得 / 已过期 / 衰减率」全部显示 0。
+  //    兼容层做桥接，两套命名都能工作。
+  const available = num(a.available ?? a.availablePoint);
+  const accumulative = num(a.accumulative ?? a.accumulativePoint);
+  const used = num(a.used ?? a.usedPoint);
+  const expired = num(a.expired ?? a.expiredPoint);
+  const frozen = num(a.frozen ?? a.frozenPoint);
+  const expiringThisMonth = num(a.expiringThisMonth ?? a.currentMouthExpirePoint);
+  const expiringNextMonth = num(a.expiringNextMonth ?? a.nextMouthExpirePoint);
   return {
-    available: num(a.available ?? a.availablePoint),
-    accumulative: num(a.accumulative ?? a.accumulativePoint),
-    used: num(a.used ?? a.usedPoint),
-    expired: num(a.expired ?? a.expiredPoint),
-    frozen: num(a.frozen ?? a.frozenPoint),
-    expiringThisMonth: num(a.expiringThisMonth ?? a.currentMouthExpirePoint),
-    expiringNextMonth: num(a.expiringNextMonth ?? a.nextMouthExpirePoint),
+    // 新契约
+    available,
+    accumulative,
+    used,
+    expired,
+    frozen,
+    expiringThisMonth,
+    expiringNextMonth,
+    // 旧契约（points-engine.mjs 读这套）
+    availablePoint: available,
+    accumulativePoint: accumulative,
+    usedPoint: used,
+    expiredPoint: expired,
+    frozenPoint: frozen,
+    currentMouthExpirePoint: expiringThisMonth,
+    nextMouthExpirePoint: expiringNextMonth,
     currency: a.currency || "麦享会积分",
   };
 }

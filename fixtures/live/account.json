@@ -5,15 +5,16 @@
   "datetime": "2026-10-23 15:52:44",
   "traceId": "42cc29ca2ffe4e943d2a71c12c660748",
   "data": {
-    "availablePoint": "33.5",
+    "availablePoint": "120.5",
     "accountId": "REDACTED-ACCOUNT-ID",
-    "accumulativePoint": "763",
+    "accumulativePoint": "1840",
     "currency": "麦享会积分",
-    "currentMouthExpirePoint": "0",
-    "expiredPoint": "729.5",
+    "currentMouthExpirePoint": "50",
+    "expiredPoint": "1100",
     "frozenPoint": "0",
     "lastMouthExpirePoint": "0",
     "nextMouthExpirePoint": "0",
-    "usedPoint": "0"
-  }
+    "usedPoint": "620"
+  },
+  "_note": "账户数字已替换为合成值（保留「可用是小数」等结构特征，用于回归测试 parseInt 截断风险）。本文件的价值在响应结构，不在数值。"
 }

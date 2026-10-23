@@ -254,14 +254,27 @@ export function scheduleCoupons(coupons = [], orders = [], opts = {}) {
 function explainUnassignable(edge, slots, now) {
   const c = edge.coupon;
   if (!edge.ok.some(Boolean)) {
+    // ⚠️ 诊断顺序很重要：**先看有效期，再看时段与星期限制**。
+    //    反过来的话，一张「10-29 到期、时段 10:30-23:59」的券在点单预测为
+    //    12:00 时会先撞上时段规则，报「时段与点餐时间不匹配」——
+    //    而 12:00 明明落在 10:30-23:59 之内。真实卡点是它在下一次点餐前就过期了。
+    //    报错的诊断会让用户去等时段，而不是去赶在过期前用掉。
+    const firstSlot = slots[0];
+    if (c.expireAt && firstSlot && new Date(c.expireAt) < new Date(`${firstSlot.date}T${String(firstSlot.hour ?? 12).padStart(2, "0")}:00:00`)) {
+      const exp = new Date(c.expireAt);
+      const daysLeft = Math.ceil((exp.getTime() - now.getTime()) / 86400000);
+      // 关键洞察：按平时的节奏等下去会赶不上 —— 但**现在去就能用掉**。
+      // 只说「过期了」用户会以为作废；说清「还剩几天、今天就能用」才可执行。
+      return (
+        `按平时的点餐节奏（下次约 ${firstSlot.date}）会赶不上过期（${exp.toISOString().slice(0, 10)}），` +
+        `但它现在还有 ${Math.max(0, daysLeft)} 天有效期 —— 这几天内去就能用掉`
+      );
+    }
     if (c.weekdays?.length) {
       return `限定${c.weekdayText || "特定星期"}，未来几次点餐都赶不上`;
     }
     if (c.dayWindow) {
       return `可用时段 ${c.dayWindow}，与点餐时间不匹配`;
-    }
-    if (c.expireAt && new Date(c.expireAt) < new Date(`${slots[0].date}T12:00:00`)) {
-      return "在下一次点餐之前就过期了";
     }
     return "在计划的点餐时点上无法使用";
   }

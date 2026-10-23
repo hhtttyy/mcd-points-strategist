@@ -160,12 +160,15 @@
   <div class="eyebrow">麦当劳程序员创意开发大赛参赛作品 · 非麦当劳官方产品</div>
   <h1>你的积分不是攒出来的，是漏掉的</h1>
   <p class="lede">
-    基于麦当劳中国 MCP 实时数据（2026-10-23 采样）的积分资产分析器。
+    基于麦当劳中国 MCP 数据结构的积分资产分析器。
     拖动滑块模拟你的积分余额，立刻看清：积分衰减了多少、兑换档位哪个真划算、
     有没有在为早已结束的活动白攒分、以及最优兑换组合怎么选。
   </p>
   <div class="notice">
-    <b>这是离线演示版</b>，用脱敏快照驱动，展示的是<b>算法内核</b>。<br>
+    <b>这是离线演示版</b>，用<b>合成数据</b>驱动，展示的是<b>算法内核</b>。<br>
+    页面数据的<b>字段结构与麦当劳 MCP 真实响应完全一致</b>（券的时段/星期/渠道限制、
+    商城标的的上下架时间都按真实契约填充），但账户数字与券面值经过改写，
+    不是任何真实账户的数据。<br>
     实时看板与「每天检测 → 合理花出 → 变动自动更新」的完整闭环在 WorkBuddy 里 ——
     把本仓库装成 Skill 后直接对话使用即可，脚本会实时拉取你的真实数据。
     本页与 Skill 跑的是<b>同一份</b> <code>points-engine.mjs</code>，结论永远一致。
@@ -200,8 +203,8 @@
 <div class="card">
   <div class="ctrl">
     <label for="budget">模拟可用积分</label>
-    <input type="range" id="budget" min="0" max="1200" step="0.5" value="33.5">
-    <span class="rv" id="budgetVal">33.5 分</span>
+    <input type="range" id="budget" min="0" max="1200" step="0.5" value="120">
+    <span class="rv" id="budgetVal">120 分</span>
   </div>
   <div id="densityChart"></div>
   <div id="decayNote"></div>
@@ -246,10 +249,12 @@
 
 <footer>
   <p>
-    数据来源：麦当劳中国 MCP Server（<code>query-my-account</code>、<code>mall-points-products</code>、
+    数据结构来源：麦当劳中国 MCP Server（<code>query-my-account</code>、<code>mall-points-products</code>、
     <code>query-lottery-info</code>、<code>available-coupons</code>、<code>query-my-coupons</code>、
-    <code>campaign-calendar</code>、<code>now-time-info</code>），
-    2026-10-23 采样并脱敏。分析引擎与 Skill CLI 共用同一份实现。
+    <code>campaign-calendar</code>、<code>now-time-info</code>、<code>query-nearby-stores</code>）。
+    页面数据为<b>合成数据</b>，字段结构与真实响应一致，数值已改写。
+    真实响应样本（已脱敏）见仓库的 <code>fixtures/live/</code>。
+    分析引擎与 Skill CLI 共用同一份实现。
   </p>
   <p>
     <b>本页未覆盖的能力</b>（在 WorkBuddy Skill 中可用）：
@@ -275,8 +280,9 @@ import { classify, parseCouponTerms } from "./vendor/analyze/coupon-model.mjs";
 import { computeShadowPrice, planAssetAllocation } from "./vendor/analyze/asset-plan.mjs";
 import { normalizeSnapshot } from "./vendor/collect/normalize.mjs";
 
-// 数据来源：真实 MCP 采集快照（脱敏）。直接读取 fixtures 而非硬编码，
-// 保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
+// 数据来源：**合成演示数据**，字段结构与麦当劳 MCP 真实响应完全一致，
+// 但账户数字与券面值经过改写，不是任何真实账户的数据。
+// 直接读取 fixtures 而非硬编码，保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
 const RAW_SNAP = await (await fetch("./data/mcd-snapshot.json")).json();
 // 快照版本兼容层：早期快照用旧字段名（title/spuName/availablePoint），
 // 这里归一化到当前契约，让 Demo 与 Skill CLI 读到同一份数据。
@@ -284,11 +290,23 @@ const SNAP = normalizeSnapshot(RAW_SNAP);
 
 const NOW = new Date(SNAP.generatedAt || RAW_SNAP._generatedAt);
 const $ = (id) => document.getElementById(id);
-// 整数分不显示小数位；有小数时保留最多 2 位（729.5 不能被截成 730）
+// 整数分不显示小数位；有小数时保留最多 2 位（1100.5 不能被截成 1101）
 const fmt = (n) => {
   const v = Number(n);
   return Number.isInteger(v) ? String(v) : v.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 };
+
+// 滑块初值从快照里取 —— 避免 HTML 里的数字与数据文件脱节
+// （之前 HTML 写死 33.5，数据文件改成 120 之后，页面仍显示 33.5）
+{
+  const slider = $("budget");
+  const snapBalance = Number(SNAP.account?.availablePoint ?? SNAP.account?.available ?? 0);
+  if (slider && snapBalance > 0) {
+    slider.value = String(snapBalance);
+    slider.max = String(Math.max(1200, Math.ceil(snapBalance * 4)));
+    $("budgetVal").textContent = fmt(snapBalance) + " 分";
+  }
+}
 
 // 给券补上类型判定与券面解析（与 Skill CLI 同一套逻辑）
 const enrichCoupon = (c) => {

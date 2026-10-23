@@ -1,16 +1,23 @@
 {
   "_generatedAt": "2026-10-12T21:59:29.000Z",
-  "_source": "McDonald's China MCP Server (https://mcp.mcd.cn)",
-  "_note": "本文件为脱敏快照，仅保留算法所需的业务字段。券数据来自 query-my-coupons 与 available-coupons 的真实抓取（含有效期/时段/星期/渠道限制）。",
+  "_source": "麦当劳中国 MCP Server（合成演示数据）",
+  "_note": "本文件是**合成演示数据**，不是真实账户快照。字段结构与麦当劳 MCP 真实响应一致（券的 valueKind / dayWindow / weekdays / channel 均按真实结构填充），但账户数字、券面值与门店名均已改写。真实响应样本见 fixtures/live/。",
   "account": {
-    "availablePoint": 33.5,
-    "accumulativePoint": 763,
-    "usedPoint": 0,
-    "expiredPoint": 729.5,
+    "available": 120,
+    "accumulative": 1840,
+    "used": 620,
+    "expired": 1100,
+    "frozen": 0,
+    "expiringThisMonth": 50,
+    "expiringNextMonth": 0,
+    "currency": "麦享会积分",
+    "availablePoint": 120,
+    "accumulativePoint": 1840,
+    "usedPoint": 620,
+    "expiredPoint": 1100,
     "frozenPoint": 0,
-    "currentMouthExpirePoint": 0,
-    "nextMouthExpirePoint": 0,
-    "currency": "麦享会积分"
+    "currentMouthExpirePoint": 50,
+    "nextMouthExpirePoint": 0
   },
   "mall": [
     {
@@ -795,7 +802,14 @@
       "expireText": "2026-10-10 10:30-2026-10-14 23:59 周一、二、三、四、五 10:30-23:59",
       "labelText": "到店专用、外送专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "中薯条买一送一",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 13.5,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "王牌小食拼",
@@ -803,7 +817,14 @@
       "expireText": "2026-10-10 10:30-2026-10-14 23:59 周一、二、三、四、五 10:30-23:59",
       "labelText": "到店专用、外送专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "王牌小食拼",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 15.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "大脆鸡扒堡早餐两件套",
@@ -811,7 +832,14 @@
       "expireText": "2026-10-13 05:00-2026-10-13 10:29 周四 05:00-10:29",
       "labelText": "到店专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "大脆鸡扒堡早餐两件套",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 9.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "火腿扒堡早餐两件套",
@@ -819,7 +847,14 @@
       "expireText": "2026-10-14 05:00-2026-10-14 10:29 周五 05:00-10:29",
       "labelText": "到店专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "火腿扒堡早餐两件套",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 9.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "巧克力味厚松饼猪柳蛋套餐",
@@ -827,23 +862,14 @@
       "expireText": "2026-10-15 05:00-2026-10-15 10:29 周六 05:00-10:29",
       "labelText": "到店专用",
       "status": "已领取",
-      "source": "my"
-    },
-    {
-      "title": "巧克力味厚松饼猪柳蛋套餐",
-      "value": 29.9,
-      "expireText": "2026-10-16 05:00-2026-10-16 10:29 周日 05:00-10:29",
-      "labelText": "到店专用",
-      "status": "已领取",
-      "source": "my"
-    },
-    {
-      "title": "火腿扒堡早餐两件套",
-      "value": 9.9,
-      "expireText": "2026-10-17 05:00-2026-10-17 10:29 周一 05:00-10:29",
-      "labelText": "到店专用",
-      "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "巧克力味厚松饼猪柳蛋套餐",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 29.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "芝香脆鸡扒堡早餐两件套",
@@ -851,7 +877,14 @@
       "expireText": "2026-10-18 05:00-2026-10-18 10:29 周二 05:00-10:29",
       "labelText": "到店专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "芝香脆鸡扒堡早餐两件套",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 9.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "高达芝士蛋堡早餐两件套",
@@ -859,27 +892,50 @@
       "expireText": "2026-10-19 05:00-2026-10-19 10:29 周三 05:00-10:29",
       "labelText": "到店专用",
       "status": "已领取",
-      "source": "my"
+      "source": "my",
+      "name": "高达芝士蛋堡早餐两件套",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": true,
+      "benefit": 9.9,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "11.9元麦辣鸡腿堡",
-      "status": "可领取"
+      "status": "可领取",
+      "source": "mcd-savers",
+      "name": "11.9元麦辣鸡腿堡",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": false,
+      "benefit": null,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "19.9元王牌炸鸡任选2",
-      "status": "可领取"
+      "status": "可领取",
+      "source": "mcd-savers",
+      "name": "19.9元王牌炸鸡任选2",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": false,
+      "benefit": null,
+      "dayWindows": [],
+      "weekdayText": ""
     },
     {
       "title": "免费脆薯饼",
-      "status": "可领取"
-    },
-    {
-      "title": "11.9元麦辣鸡腿堡",
-      "status": "可领取"
-    },
-    {
-      "title": "19.9元王牌炸鸡任选2",
-      "status": "可领取"
+      "status": "可领取",
+      "source": "mcd-savers",
+      "name": "免费脆薯饼",
+      "valueKind": "discount_amount",
+      "valueDesc": "减免金额",
+      "benefitKnown": false,
+      "benefit": null,
+      "dayWindows": [],
+      "weekdayText": ""
     }
   ],
   "campaigns": [
@@ -904,5 +960,6 @@
       "title": "麦当劳「我就喜欢」限定丝巾正式开售🔥"
     }
   ],
-  "_capturedFrom": "麦当劳官方 MCP · 2026-10-12 21:59 采样（券数据 2026-10-12 ~ 10-14 期间陆续抓取）"
+  "_capturedFrom": "合成演示数据 —— 结构与真实 MCP 响应完全一致，数值经过改写以避免泄露真实账户信息",
+  "generatedAt": "2026-10-12T21:59:29.000Z"
 }
