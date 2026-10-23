@@ -201,6 +201,24 @@ async function main() {
   });
   await appendRecord(record);
   console.log(`✓ 已记账 → ${LEDGER.replace(ROOT + "/", "")}`);
+
+  // ── 记录领券时刻（供 App 可见性诊断用）──
+  // 服务端返回的 datetime 是「券实际到账的时刻」，
+  // 与卡包里券的 receiveTime 一致 → 用来判断
+  // 「这张券是不是刚领的、App 侧可能还没同步」。
+  if (cmd === "claim") {
+    const claimAt = res?.datetime || res?.data?.datetime || new Date().toISOString();
+    try {
+      await writeFile(
+        resolve(DATA, "last-claim.json"),
+        `${JSON.stringify({ claimAt, at: new Date().toISOString() }, null, 2)}\n`,
+        "utf8"
+      );
+      console.log(`✓ 已记录领券时刻 ${claimAt} → data/last-claim.json`);
+    } catch {
+      /* 记录失败不影响主流程 */
+    }
+  }
 }
 
 async function showLedger() {

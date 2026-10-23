@@ -13,6 +13,7 @@ import { mergeCoupons, collectMyCoupons, collectStoreCoupons, collectPromotions 
 import { collectMenuItems } from "../collect/menu.mjs";
 import { comparePricings, extractPricing, summarizeCouponValues } from "../analyze/coupon-value.mjs";
 import { analyzePromotionRules, bestPromotionFor } from "../analyze/promotion-rules.mjs";
+import * as V from "../analyze/visibility.mjs";
 
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../..");
 const LIVE = resolve(ROOT, "fixtures/live");
@@ -344,6 +345,78 @@ console.log("\n【券的同一性 · couponId 是唯一可靠标识】");
          id: "mcd-savers-2-免费脆薯饼" }],
     ], { now: NOW });
     return eq(m.length, 2);
+  });
+}
+
+
+console.log("\n【App 可见性诊断】");
+{
+  const mk = (id, name, extra = {}) => ({
+    id, name, value: 20.48, valueKind: "coupon_price",
+    expireAt: "2026-10-23T15:59:59.000Z", validFrom: "2026-10-19T02:30:00.000Z",
+    weekdays: [1, 2, 3, 4, 5], dayWindow: "10:30-23:59", channel: [],
+    source: "my", status: "已领取", itemCodes: [], ...extra,
+  });
+
+  const justClaimed = mk("A", "刚领的券", {
+    receivedText: "2026-10-23 16:35:47",
+    receivedAt: "2026-10-23T08:35:47.000Z",
+    serverTags: [
+      { type: 3, value: "due today", label: "今日到期" },
+      { type: 2, value: "pickup", label: "到店专用" },
+    ],
+    orderTypes: [1, 2],
+  });
+  const oldOne = mk("B", "早就有的券", {
+    receivedText: "2026-10-23 12:16:47",
+    receivedAt: "2026-10-23T04:16:47.000Z",
+    serverTags: [{ type: 2, value: "pickup", label: "到店专用" }],
+    orderTypes: [1],
+  });
+
+  check("领取时刻与领券时刻一致的券 → 判为「刚领取」", () => {
+    const r = V.diagnoseVisibility(justClaimed, {
+      now: new Date("2026-10-23T09:28:00Z"),
+      claimAt: "2026-10-23 16:35:47",
+    });
+    return eq(r.facts.some((f) => f.kind === "just_claimed"), true);
+  });
+  check("刚领取的券给出高置信度结论", () => {
+    const r = V.diagnoseVisibility(justClaimed, {
+      now: new Date("2026-10-23T09:28:00Z"),
+      claimAt: "2026-10-23 16:35:47",
+    });
+    return eq([r.confidence, /同步延迟/.test(r.conclusion)], ["high", true]);
+  });
+  check("领取时刻早很多的券 → 不判为刚领取", () => {
+    const r = V.diagnoseVisibility(oldOne, {
+      now: new Date("2026-10-23T09:28:00Z"),
+      claimAt: "2026-10-23 16:35:47",
+    });
+    return eq(r.facts.some((f) => f.kind === "just_claimed"), false);
+  });
+  check("「今日到期」标签被识别为事实", () => {
+    const r = V.diagnoseVisibility(justClaimed, { now: new Date("2026-10-23T09:28:00Z") });
+    return eq(r.facts.some((f) => f.kind === "due_today"), true);
+  });
+  check("限周一~五的券在周六判为当前不可用", () => {
+    const r = V.diagnoseVisibility(justClaimed, { now: new Date("2026-10-24T04:00:00Z") });
+    return eq(r.nowUsable, false);
+  });
+  check("批量诊断：能区分「App 看不到的里哪些是刚领的」", () => {
+    const b = V.diagnoseVisibilityBatch([justClaimed, oldOne], {
+      now: new Date("2026-10-23T09:28:00Z"),
+      claimAt: "2026-10-23 16:35:47",
+      appVisibleIds: ["B"],
+    });
+    return eq(/刚领取/.test(b.summary), true);
+  });
+  check("批量诊断：没给 App 列表时如实说明", () => {
+    const b = V.diagnoseVisibilityBatch([justClaimed, oldOne], {
+      now: new Date("2026-10-23T09:28:00Z"),
+      claimAt: "2026-10-23 16:35:47",
+    });
+    return eq(b.hasAppList, false);
   });
 }
 

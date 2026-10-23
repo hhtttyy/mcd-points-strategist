@@ -172,6 +172,9 @@ export function collectMyCoupons(raw, { now = new Date() } = {}) {
   return rows.map((r, i) =>
     decorateCoupon(
       {
+        ...r, // ⚠️ 透传：JSON 路径已解析出全部原生字段
+                //    （receivedAt / serverTags / orderTypes / channels 等），
+                //    手工列举容易漏 —— 之前就漏过。
         // ⚠️ id 必须包含**到期时刻**，否则同名的不同批次券会被合并成一张。
         //    （真实结构里 id 来自 couponId，天然唯一；这里是无 id 时的回退路径。）
         id: r.id || `my-${r.name}-${r.expireAt || i}`,
@@ -193,7 +196,13 @@ export function collectMyCoupons(raw, { now = new Date() } = {}) {
         status: "已领取",
         labelText: r.labelText || "",
         receivedText: r.receivedText || "",
-        itemCodes: [],
+        receivedAt: r.receivedAt ?? null,
+        serverTags: r.serverTags || [],
+        serverLabel: r.serverLabel || "",
+        orderTypes: r.orderTypes || [],
+        beTypesRaw: r.beTypesRaw || [],
+        channels: r.channels || [],
+        itemCodes: r.itemCodes || [],
         stackable: false,
         usableSlots: null,
       },
@@ -237,6 +246,7 @@ export function collectStoreCoupons(raw, { now = new Date() } = {}) {
   return rows.map((r, i) =>
     decorateCoupon(
       {
+        ...r, // ⚠️ 透传（与卡包路径同一套纪律，避免漏字段）
         id: r.id || `store-${i}-${r.name}`,
         code: r.code || "",
         name: r.name,
@@ -255,7 +265,14 @@ export function collectStoreCoupons(raw, { now = new Date() } = {}) {
         source: "store",
         status: "门店可用",
         labelText: r.labelText || "",
+        receivedText: r.receivedText || "",
+        receivedAt: r.receivedAt ?? null,
+        serverTags: r.serverTags || [],
+        orderTypes: r.orderTypes || [],
+        beTypesRaw: r.beTypesRaw || [],
+        channels: r.channels || [],
         itemCodes: r.itemCodes || [],
+        itemNames: r.itemNames || [],
         stackable: false,
         usableSlots: null,
       },
@@ -377,6 +394,14 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
       if (k === "weekdayText") {
         if (pv === "不限" && v && v !== "不限") merged[k] = v;
         else if (v === "不限" && pv && pv !== "不限") merged[k] = pv; // 保留已有的真文案
+        continue;
+      }
+      // ⚠️ 领取时刻与标签：只有卡包券路径（`query-my-coupons`）有，
+      //    门店券路径（`query-store-coupons`）不返回。
+      //    合并时**必须保留卡包那份** —— 它是「App 可见性诊断」的唯一依据。
+      if (k === "receivedAt" || k === "receivedText" || k === "serverTags") {
+        if (pEmpty && !empty) merged[k] = v;
+        else if (!pEmpty) merged[k] = pv; // 卡包那份优先
         continue;
       }
       // 其余：门店源优先（它更贴近「当前门店可用」的真实场景）
@@ -670,6 +695,7 @@ export function collectPromotionsMarkdown(rawText) {
  * @param {Array}  [parts.stores]
  * @param {Array}  [parts.promotions]
  * @param {string} [parts.storeCode] 本次核对的门店
+ * @param {string} [parts.lastClaimAt] 最近一次领券时刻
  * @param {Array}  [parts.menu]      门店实时菜单
  * @param {Array}  [parts.errors]  采集失败项
  */
@@ -687,6 +713,9 @@ export function assembleSnapshot(parts = {}) {
     promotions: parts.promotions ?? [],
     // 本次核对的门店 —— 渲染「门店优惠」区块时用来显示门店名
     storeCode: parts.storeCode ?? null,
+    // 最近一次领券时刻（auto-bind-coupons 的 datetime）——
+    // 用来判断「这张券是不是刚领的、App 侧可能还没同步」
+    lastClaimAt: parts.lastClaimAt ?? null,
     // 门店实时菜单 —— 用来算券的实际优惠额与凑单建议
     menu: parts.menu ?? [],
     errors: parts.errors ?? [],

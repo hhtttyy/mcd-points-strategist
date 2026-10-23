@@ -57,6 +57,15 @@ async function main() {
 
   const now = new Date();
   const diff = diffSnapshots(prev, snapshot, { now });
+
+  // 最近一次领券时刻 —— 用来诊断「App 里看不到刚领的券」
+  let claimAt = null;
+  try {
+    const lc = JSON.parse(await readFile(resolve(ROOT, "data/last-claim.json"), "utf8"));
+    claimAt = lc.claimAt || null;
+  } catch {
+    /* 没有记录则跳过 */
+  }
   const channel = CHANNEL;
   const hour = HOUR !== null ? Number(HOUR) : now.getHours();
 
@@ -89,6 +98,7 @@ async function main() {
         // 门店标识：用于在「门店优惠」区块显示门店名
         storeCode: arg("store", null),
         couponValues,
+        claimAt,
       },
       { now, channel, hour }
     )

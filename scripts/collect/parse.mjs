@@ -429,7 +429,26 @@ export function collectMyCouponsJson(data) {
       // 服务端给的状态标签（如「未到使用时间」「到店」）
       serverLabel: labels.join("、"),
       availableTexts: availText,
-      receivedText: "",
+      // ⚠️ 领取时刻（服务端下发时间）—— 诊断「App 里看不到这张券」的关键字段。
+      //    实测（2026-10-23）：用户 App 里只显示 receiveTime 早于
+      //    「本次自动领券时刻」的券，而刚领的那几张在 App 里看不到。
+      //    对比 receiveTime 与 auto-bind-coupons 的 datetime 就能判断
+      //    「是刚领的还没同步」还是「本来就没有」。
+      receivedText: String(c.receiveTime || ""),
+      receivedAt: toIso(parseTime(c.receiveTime)),
+      // ⚠️ 服务端的服务端标签数组 —— 里面有「今日到期」这类
+      //    **App 用来分组的判别信息**。
+      //    实测：App 看不到的券带 {type:3, value:"due today", label:"今日到期"}，
+    //    App 能看到的券只有 {type:2, value:"pickup", label:"到店专用"}。
+      serverTags: (c.tags || []).map((t) => ({
+        type: num(t.type),
+        value: String(t.value || ""),
+        label: String(t.label || ""),
+      })),
+      // 适用渠道/场景（原始值，语义未完全确定但可作为判别依据）
+      orderTypes: Array.isArray(c.orderTypes) ? c.orderTypes.map((x) => num(x)) : [],
+      beTypesRaw: Array.isArray(c.beTypes) ? c.beTypes.map((x) => num(x)) : [],
+      channels: Array.isArray(c.channels) ? c.channels.map((x) => String(x)) : [],
       source: "my",
       status: "已领取",
       totalCount: num(c.totalCount, 1),

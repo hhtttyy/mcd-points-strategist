@@ -18,6 +18,7 @@ import { forecastOrders, scheduleCoupons } from "../analyze/coupon-schedule.mjs"
 import { classify, parseCouponTerms } from "../analyze/coupon-model.mjs";
 import { calibrateEarnRate } from "../analyze/ledger.mjs";
 import { analyzePromotionRules } from "../analyze/promotion-rules.mjs";
+import { diagnoseVisibilityBatch } from "../analyze/visibility.mjs";
 
 /**
  * 渲染完整看板。
@@ -256,6 +257,37 @@ export function renderDashboard(input = {}, opts = {}) {  const snap = input.sna
     for (const t of titles.slice(0, 3)) L.push(`　 · ${t}`);
     if (titles.length > 3) L.push(`　 … 另有 ${titles.length - 3} 个`);
     L.push("");
+  }
+
+  // ══ App 可见性诊断（用户问「为什么 App 里看不到这张券」）══
+  // 只在有券时输出，且只在有诊断价值时（有刚领的券 / 有到期标签 / 有不可用的券）
+  if (snap.coupons?.length) {
+    const batch = diagnoseVisibilityBatch(snap.coupons, {
+      now,
+      hour,
+      channel,
+      claimAt: input.claimAt || null,
+      appVisibleIds: input.appVisibleIds || null,
+    });
+    const worth = batch.results.some(
+      (r) =>
+        r.facts.some((f) => f.kind === "just_claimed" || f.kind === "due_today") || !r.nowUsable
+    );
+    if (worth) {
+      L.push("📱 **App 可见性**");
+      for (const r of batch.results.slice(0, 4)) {
+        const recv = r.facts.find((f) => f.kind === "received_at");
+        const just = r.facts.find((f) => f.kind === "just_claimed");
+        const due = r.facts.find((f) => f.kind === "due_today");
+        const notes = [];
+        if (just) notes.push("刚领取，App 可能未同步");
+        else if (recv) notes.push(`领于 ${String(recv.value).slice(5, 16)}`);
+        if (due) notes.push(due.value);
+        if (!r.nowUsable) notes.push("当前不可用");
+        L.push(`　 ${r.name}${notes.length ? " · " + notes.join(" · ") : ""}`);
+      }
+      L.push("");
+    }
   }
 
   // ══ 待办（按零成本 → 有成本）══
