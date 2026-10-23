@@ -149,10 +149,49 @@ export function normalizeSnapshot(snap) {
       name: s.name ?? "",
       address: s.address ?? "",
       distance: s.distance ?? null,
+      beCode: s.beCode ?? "",
+      businessStartTime: s.businessStartTime ?? "",
+      businessEndTime: s.businessEndTime ?? "",
+      businessStatus: s.businessStatus ?? null,
+      reservation: s.reservation === true,
     })),
+    // 促销：保留结构化规则字段（threshold/discount/rate/beTypes）——
+    // 早期快照只有 title/description，规则字段为 undefined，
+    // promotion-rules 模块会自动判定为「无可用规则」而不是编造。
     promotions: (snap.promotions || []).map((p) => ({
+      ...p,
+      promotionId: p.promotionId ?? "",
+      rule: p.rule ?? "unknown",
+      threshold: num(p.threshold),
+      discount: num(p.discount),
+      rate: p.rate ?? null,
+      beTypes: Array.isArray(p.beTypes) ? p.beTypes : [],
+      channelText: p.channelText ?? "",
+      itemCodes: Array.isArray(p.itemCodes) ? p.itemCodes : [],
+      startAt: p.startAt ?? null,
+      endAt: p.endAt ?? null,
+      isLive: p.isLive !== false,
+      // ⚠️ 必须保留 null —— 渠道判定在**分析阶段**做（它依赖运行时就餐方式）。
+      //    `p.appliesToChannel !== false` 会把 null 变成 true，
+      //    导致「渠道待定」被误当成「渠道适用」——
+      //    实测这会让到店场景误报「12 条满额减生效中」（实际全是团餐的）。
+      appliesToChannel:
+        p.appliesToChannel === true ? true : p.appliesToChannel === false ? false : null,
       title: p.title ?? "",
       description: p.description ?? "",
+    })),
+    storeCode: snap.storeCode ?? null,
+    // 门店实时菜单
+    menu: (snap.menu || []).map((m) => ({
+      code: String(m.code ?? ""),
+      name: m.name ?? "",
+      currentPrice: num(m.currentPrice),
+      originalPrice: num(m.originalPrice),
+      ownSaving: num(m.ownSaving),
+      discountType: m.discountType ?? null,
+      canWithOrder: m.canWithOrder === true,
+      category: m.category ?? "",
+      tags: Array.isArray(m.tags) ? m.tags : [],
     })),
     errors: (snap.errors || []).map((e) => ({
       tool: e.tool ?? "",

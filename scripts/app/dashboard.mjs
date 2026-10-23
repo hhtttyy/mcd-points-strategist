@@ -17,6 +17,8 @@ import { dirname, resolve } from "node:path";
 import { normalizeSnapshot } from "../collect/normalize.mjs";
 import { diffSnapshots } from "../analyze/diff.mjs";
 import { renderDashboard, renderPatrol } from "./render.mjs";
+import { McpClient } from "../lib/mcp-client.mjs";
+import { summarizeCouponValues } from "../analyze/coupon-value.mjs";
 
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../..");
 
@@ -58,8 +60,16 @@ async function main() {
   const channel = CHANNEL;
   const hour = HOUR !== null ? Number(HOUR) : now.getHours();
 
+  // 券的实际优惠额测算（需要网络 + MCP）
+  // ⚠️ 默认开启：这是「券到底省多少」的唯一可靠答案。
+  //    没测算过的话，看板只能说「到手价 ¥20.48」而说不出「实省 ¥13.52」。
+  let couponValues = null;
+  if (!process.argv.includes("--no-measure")) {
+    couponValues = await measureCoupons(snapshot, arg("store", null));
+  }
+
   if (wantJson) {
-    console.log(JSON.stringify({ snapshot, diff }, null, 2));
+    console.log(JSON.stringify({ snapshot, diff, couponValues }, null, 2));
     return;
   }
 
@@ -70,10 +80,74 @@ async function main() {
 
   console.log(
     renderDashboard(
-      { snapshot, diff, channel, hour, prevAccount: prev?.account ?? null },
+      {
+        snapshot,
+        diff,
+        channel,
+        hour,
+        prevAccount: prev?.account ?? null,
+        // 门店标识：用于在「门店优惠」区块显示门店名
+        storeCode: arg("store", null),
+        couponValues,
+      },
       { now, channel, hour }
     )
   );
+}
+
+/**
+ * 用 calculate-price 测算券的实际优惠额。
+ *
+ * ⚠️ 只读接口，不创建订单。失败不阻塞看板 —— 拿不到就退回「到手价」表述。
+ */
+async function measureCoupons(snapshot, storeCode) {
+  const store = storeCode || snapshot?.storeCode;
+  if (!store) return null;
+  // 只测「卡包持有 + 用券价格语义 + 有适用商品编码」的券
+  const targets = (snapshot.coupons || []).filter(
+    (c) =>
+      (c.sources || [c.source]).includes("my") &&
+      c.valueKind === "coupon_price" &&
+      Array.isArray(c.itemCodes) &&
+      c.itemCodes.length
+  );
+  if (!targets.length) return null;
+
+  const client = new McpClient();
+  try {
+    await client.initialize();
+    const pricing = {};
+    for (const c of targets) {
+      const code = c.itemCodes[0];
+      try {
+        const without = await client.callTool("calculate-price", {
+          storeCode: store,
+          orderType: 1,
+          beType: 1,
+          items: [{ productCode: code, quantity: 1 }],
+        });
+        const withC = await client.callTool("calculate-price", {
+          storeCode: store,
+          orderType: 1,
+          beType: 1,
+          items: [
+            {
+              productCode: code,
+              quantity: 1,
+              couponId: c.id || undefined,
+              couponCode: c.code || undefined,
+            },
+          ],
+        });
+        pricing[c.id] = { without, with: withC };
+      } catch {
+        /* 单张券测算失败不影响其他 */
+      }
+    }
+    return summarizeCouponValues(snapshot.coupons, pricing);
+  } catch {
+    return null;
+  }
 }
 
 main().catch((e) => {

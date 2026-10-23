@@ -35,6 +35,7 @@ import {
   mergeCoupons,
 } from "../collect/collectors.mjs";
 import { validateSnapshotDeep } from "../lib/schema.mjs";
+import { collectMenuItems } from "../collect/menu.mjs";
 
 const ROOT = resolve(dirname(new URL(import.meta.url).pathname), "../..");
 const PROFILE = resolve(ROOT, "data/profile.json");
@@ -127,6 +128,7 @@ async function main() {
   const store = await resolveStore();
   let storeCoupons = null;
   let promotions = null;
+  let menu = null;
   if (store.storeCode) {
     storeCoupons = await probe(errors, "query-store-coupons", async () =>
       collectStoreCoupons(
@@ -143,9 +145,21 @@ async function main() {
         orderType: 1,
         beType: 1,
       });
-      const parsed = collectPromotions(res);
+      // ⚠️ 该工具忽略传入的 beType（实测传 1 也返回团餐规则），
+      //    所以必须把 beType=1 传给解析器，让它按 beTypes 字段过滤并标注不适用项。
+      const parsed = collectPromotions(res, { beType: 1 });
       return parsed.length ? parsed : collectPromotionsMarkdown(rawText(res));
     });
+    // 门店实时菜单 —— 券的「用券价格」要靠菜单原价才能算出实际优惠额
+    menu = await probe(errors, "query-meals", async () =>
+      collectMenuItems(
+        await client.callTool("query-meals", {
+          storeCode: store.storeCode,
+          orderType: 1,
+          beType: 1,
+        })
+      )
+    );
   }
 
   const coupons = mergeCoupons([available, myCoupons, storeCoupons]);
@@ -158,6 +172,8 @@ async function main() {
     orders,
     stores,
     promotions,
+    storeCode: store.storeCode,
+    menu,
     errors,
   });
 

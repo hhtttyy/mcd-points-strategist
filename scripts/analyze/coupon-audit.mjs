@@ -149,6 +149,8 @@ export function computeSilentCost(coupons = [], opts = {}) {
     unknownCount,
     priceOnlyCount,
     atRiskItems: atRisk.map((e) => ({
+      id: e.coupon.id,
+      code: e.coupon.code,
       name: e.coupon.name,
       value: e.coupon.value,
       benefit: e.coupon.benefit,

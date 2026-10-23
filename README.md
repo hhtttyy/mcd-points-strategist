@@ -112,11 +112,14 @@
 scripts/
   lib/         mcp-client.mjs  schema.mjs        ← 协议与数据契约，无业务
   collect/     parse.mjs  collectors.mjs        ← 纯函数：原始响应 → 契约对象
+                menu.mjs                         ← 门店实时菜单（现价/原价）
                 normalize.mjs                    ← 快照版本兼容层
   analyze/     coupon-model.mjs                 ← 5 类券建模、叠加互斥、可用时段
                 coupon-stack.mjs                 ← 组合计价、最优券组合、凑单陷阱
                 coupon-audit.mjs                 ← 沉默成本、同款不同价、券体检
                 coupon-schedule.mjs              ← 点单机会预测、二分图最大匹配排程
+                coupon-value.mjs                 ← 券实际优惠额（calculate-price 口径）
+                promotion-rules.mjs              ← 门店满额减规则分析（结构化）
                 diff.mjs                         ← 昨日今日增量（6 类变化）
                 asset-plan.mjs                   ← 积分影子价格、积分×券联合决策
                 ledger.mjs                       ← 账本、earnRate 校准、复盘
@@ -412,13 +415,17 @@ node scripts/points-strategist.mjs              # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 模拟积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
 
-# 自检（共 281 项）
+# 券实际价值测算（用 calculate-price 算出券到底省多少）
+node scripts/app/measure-coupons.mjs --store 1950979
+
+# 自检（共 314 项）
 node scripts/selftest.mjs               # 算法层 39 项
 node scripts/app/selftest-collect.mjs   # 采集层 65 项
 node scripts/app/selftest-coupon.mjs     # 券引擎 68 项
 node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 45 项
 node scripts/app/selftest-execute.mjs    # 执行层与复盘 31 项
 node scripts/app/selftest-live.mjs       # 真实响应回归 33 项 ★
+node scripts/app/selftest-value.mjs      # 券价值与门店促销 33 项
 ```
 
 > ⚠️ `selftest-live.mjs` 用 `fixtures/live/` 里的**原样真实响应**做回归。

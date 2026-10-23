@@ -17,6 +17,7 @@ import { auditCoupons } from "../analyze/coupon-audit.mjs";
 import { forecastOrders, scheduleCoupons } from "../analyze/coupon-schedule.mjs";
 import { classify, parseCouponTerms } from "../analyze/coupon-model.mjs";
 import { calibrateEarnRate } from "../analyze/ledger.mjs";
+import { analyzePromotionRules } from "../analyze/promotion-rules.mjs";
 
 /**
  * 渲染完整看板。
@@ -120,23 +121,39 @@ export function renderDashboard(input = {}, opts = {}) {
 
   // ══ 券包 ══
   if (audit.total) {
-    // ⚠️ 只有能确证优惠额的券才计入金额合计。
+    // ⚠️ 只有能确证的优惠额才计入金额合计。
     //    coupon_price 语义的券（用券价格 = 到手价）不能算作「省了 X 元」。
-    const moneyNote = audit.silent.priceOnlyCount
-      ? ` · ${audit.silent.priceOnlyCount} 张仅显示到手价（未计入金额）`
-      : "";
+    //    但如果已经用 calculate-price 测算过（input.couponValues），
+    //    就可以用测算出的真实优惠额 —— 这比「无法推算」有用得多。
+    const measured = new Map(
+      (input.couponValues?.items || [])
+        .filter((x) => x.known)
+        .map((x) => [x.id, x])
+    );
+    const measuredTotal = [...measured.values()].reduce((s, x) => s + (x.saving || 0), 0);
+    const measuredCount = measured.size;
+
+    const moneyNote =
+      measuredCount > 0
+        ? ` · 已测算 ${measuredCount} 张实省 ¥${Math.round(measuredTotal * 100) / 100}`
+        : audit.silent.priceOnlyCount
+          ? ` · ${audit.silent.priceOnlyCount} 张仅显示到手价（未计入金额）`
+          : "";
     L.push(`🎫 **券包** ${audit.total} 张 · 可确证优惠 ¥${audit.totalValue}${moneyNote}`);
     const risky = audit.silent.atRiskItems.filter((x) => x.daysLeft >= 0 && x.daysLeft <= 7);
     const unusable = audit.unusable;
     const show = [...risky.slice(0, 4), ...unusable.slice(0, 2)].slice(0, 5);
     for (const item of show) {
       const tag = item.usableReason || (item.usableDays !== null ? `仅 ${item.usableDays} 天能用` : "");
-      // 到手价券显示「到手价 ¥X」，优惠额券显示「省 ¥X」—— 语义不能混
-      const priceText = item.benefitKnown
-        ? `省 ¥${item.benefit}`
-        : item.value > 0
-          ? `到手价 ¥${item.value}`
-          : "面值未知";
+      // 三种语义：已测算的实省 / 减免额券的省 / 到手价券的到手价
+      const m = measured.get(item.id);
+      const priceText = m
+        ? `实省 ¥${m.saving}（原价 ¥${m.originalYuan} → ¥${m.payableYuan}）`
+        : item.benefitKnown
+          ? `省 ¥${item.benefit}`
+          : item.value > 0
+            ? `到手价 ¥${item.value}`
+            : "面值未知";
       if (item.daysLeft !== undefined && item.daysLeft >= 0 && item.daysLeft <= 7) {
         L.push(`　 ⏰ ${item.name} ${priceText} 剩 ${item.daysLeft} 天${tag ? ` · ${tag}` : ""}`);
       } else {
@@ -161,6 +178,40 @@ export function renderDashboard(input = {}, opts = {}) {
           `　 ⚠️ 你的点餐节奏约 ${forecast.cadenceDays} 天一次，而最短的券 ${shortest} 天后过期 —— 按老节奏等就会作废`
         );
       }
+    }
+    L.push("");
+  }
+
+  // ══ 门店优惠 ══
+  // 这一节直接回答「这家店今天有什么优惠」。
+  // ⚠️ 促销规则带 beTypes 渠道标记，且该接口忽略传入的 beType ——
+  //    所以必须按渠道过滤，不适用的要明说「用不上」，不能当成可用优惠报出去。
+  const promo = analyzePromotionRules(snap.promotions || [], { now, beType: channel === "delivery" ? 2 : 1 });
+  if (promo.rules.length) {
+    const storeName = snap.stores?.find((s) => s.storeCode === (input.storeCode || snap.storeCode))?.name;
+    L.push(`🏪 **门店优惠**${storeName ? ` ${storeName}` : ""}`);
+    if (promo.effective.length) {
+      const b = promo.best;
+      L.push(
+        `　 ${promo.effective.length} 条满额减生效中 · 最优 ${b.best.title}（${(b.bestRate * 100).toFixed(1)}% off）`
+      );      if (promo.decreasing) {
+        L.push(`　 阶梯递减 → 最优策略是${promo.strategy}，不是买越多越省`);
+      }
+      // 同门槛多条规则：叠加与否接口未说明，如实告知
+      const multi = promo.tiers.filter((t) => t.count > 1);
+      if (multi.length) {
+        const t = multi[0];
+        L.push(
+          `　 「满 ${t.threshold}」有 ${t.count} 条规则（减 ${t.rules.map((r) => r.discount).join("/")}），能否叠加接口未说明`
+        );
+      }
+    } else {
+      L.push(`　 ⚠️ 到店自取没有可用的满额减规则`);
+    }
+    if (promo.channelMismatch.length) {
+      // 用 channelText（已映射成中文）而不是裸的 beTypes 数字
+      const other = [...new Set(promo.channelMismatch.map((r) => r.channelText).filter(Boolean))].join("、");
+      L.push(`　 另有 ${promo.channelMismatch.length} 条「${other || "其他渠道"}」规则，到店用不上`);
     }
     L.push("");
   }

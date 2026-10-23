@@ -30,6 +30,14 @@ import {
 
 export { collectOrders };
 
+/** 四舍五入到指定小数位。 */
+function round(v, p = 2) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  const f = 10 ** p;
+  return Math.round(n * f) / f;
+}
+
 // --------------------------------------------------------------------------
 // 积分账户
 // --------------------------------------------------------------------------
@@ -275,20 +283,79 @@ export function collectStoreCoupons(raw, { now = new Date() } = {}) {
 export function mergeCoupons(sources, { now = new Date() } = {}) {
   const all = sources.flat().filter(Boolean);
   const byKey = new Map();
+
   for (const c of all) {
     // 键：券名 + 归一化到期时刻（无到期时刻的券按名称独立计数）
     const key = `${c.name}|${c.expireAt || "no-expire"}`;
     const prev = byKey.get(key);
     if (!prev) {
-      byKey.set(key, c);
+      byKey.set(key, { ...c });
       continue;
     }
-    // 已存在同名同期的券：保留信息更全的（字段更非空）
-    const score = (x) =>
-      (x.expireAt ? 2 : 0) + (x.value > 0 ? 1 : 0) + (x.channel?.length ? 1 : 0) +
-      (x.valueKind === "coupon_price" ? 1 : 0);
-    if (score(c) > score(prev)) byKey.set(key, c);
+
+    // ⚠️ 必须**逐字段取并集**，不能二选一。
+    //    实测（2026-10-23）同一张券在三路的字段分布：
+    //      卡包（my）  ：value=20.48、valueKind=coupon_price、dayWindow、weekdays、channel
+    //      门店（store）：itemCodes=['9900016523']、itemNames、couponCode
+    //      麦麦省      ：无
+    //    二选一的话：
+    //      选门店那份 → 丢掉「用券价格」语义与时段限制（无法判断何时能用）
+    //      选卡包那份 → 丢掉适用商品编码（无法定位到菜品、无法测算实际优惠额）
+    //    两个都不可接受。逐字段取并集才能同时拿到「何时能用」与「能省多少」。
+    const merged = { ...prev };
+    for (const [k, v] of Object.entries(c)) {
+      const pv = merged[k];
+      const empty =
+        v === undefined ||
+        v === null ||
+        v === "" ||
+        (Array.isArray(v) && v.length === 0) ||
+        (typeof v === "number" && !Number.isFinite(v));
+      const pEmpty =
+        pv === undefined ||
+        pv === null ||
+        pv === "" ||
+        (Array.isArray(pv) && pv.length === 0) ||
+        (typeof pv === "number" && !Number.isFinite(pv));
+      if (empty) continue;
+      if (pEmpty) {
+        merged[k] = v;
+        continue;
+      }
+      // 数组：取并集（保留原有顺序）
+      if (Array.isArray(v) && Array.isArray(pv)) {
+        const union = [...pv];
+        for (const x of v) if (!union.includes(x)) union.push(x);
+        merged[k] = union;
+        continue;
+      }
+      // 标量冲突：保留**信息量更大**的那个
+      // 关键：valueKind 若一方是 coupon_price 而另一方是 discount_amount，
+      // 保留 coupon_price —— 因为它更严格（宁可说「不知道省多少」也不误报优惠额）。
+      if (k === "valueKind") {
+        if (v === "coupon_price" || pv !== "coupon_price") merged[k] = v;
+        continue;
+      }
+      // ⚠️ 0 不应覆盖非 0 —— 实测：门店券接口不返回面值（value=0），
+      //    卡包券有真实面值（20.48）。若让门店的 0 覆盖卡包的值，
+      //    合并后券的面值就丢了。
+      if (typeof pv === "number" && typeof v === "number") {
+        if (pv === 0 && v !== 0) merged[k] = v;
+        continue;
+      }
+      // 券码/ID：不同源用不同字段名，优先保留有值的
+      if (k === "id" || k === "code") {
+        if (!pv) merged[k] = v;
+        continue;
+      }
+      // 其余：门店源优先（它更贴近「当前门店可用」的真实场景）
+      if (c.source === "store" && prev.source !== "store") merged[k] = v;
+    }
+    // 保留来源集合 —— 用于判断「这张券在哪些视角下可见」
+    merged.sources = [...new Set([...(prev.sources || [prev.source]), ...(c.sources || [c.source])])];
+    byKey.set(key, merged);
   }
+
   return [...byKey.values()].map((c) => decorateCoupon(c, { now }));
 }
 
@@ -402,26 +469,101 @@ export function collectStores(raw) {
  * `query-promotions` → Promotion[]
  *
  * ⚠️ 这个工具**不在官方文档的 33 个工具里** —— 是 mcd-wrapped 的探测器
- *    实测发现的（参数 storeCode / orderType / beType，实测返回 12 条门店级促销）。
+ *    实测发现的（参数 storeCode / orderType / beType）。
  *    它是「门店今日优惠套餐」的主力数据源。
  *
- * 促销内容里的价格同样属于营销文案，不可用于计算 —— 只取标题与描述。
+ * ⚠️ 实测（2026-10-23 六道口店 1950979）：真实返回的是**结构化促销规则**，
+ *    不是文案：
+ * ```json
+ * {
+ *   "promotionId": "331878001",
+ *   "promotionType": "33",
+ *   "ruleCategory": 30,
+ *   "beTypes": ["6"],                  ← 适用渠道
+ *   "startTime": "2025-03-01 00:00:00",
+ *   "endTime": "2026-12-31 23:59:59",
+ *   "products": [{ "type": "2", "productCode": "9900016058" }, ...],
+ *   "ruleDetail": {
+ *     "orderDiscount": { "discount": "26", "startDiscountPoint": "500" }
+ *   }
+ * }
+ * ```
+ *   语义：**订单满 `startDiscountPoint` 元减 `discount` 元**。
+ *
+ * ⚠️⚠️ 最重要的坑：**该工具忽略传入的 beType。**
+ *    实测传 beType=1（到店自取）/ 2（外送）/ 6（团餐），
+ *    beType=1 返回 12 条且全部 `beTypes:["6"]`（团餐），
+ *    beType=2 与 6 都返回 0 条。
+ *    → 也就是说，**用 beType=1 查到的 12 条其实是团餐促销，对到店自取不生效**。
+ *
+ *    因此必须按 `beTypes` 过滤，并在不匹配时明确告知「这些是团餐规则，
+ *    你到店自取用不上」，而不是把它们当成「今天这家店的优惠」报出去。
  */
-export function collectPromotions(data) {
+export function collectPromotions(data, { beType = null, now = new Date() } = {}) {
   const d = data?.data || data || {};
   const list = Array.isArray(d) ? d : Array.isArray(d?.list) ? d.list : [];
-  return list.map((p) => {
-    if (typeof p === "string") return { title: p, description: "" };
+
+  const out = list.map((p) => {
+    // 规则解析：orderDiscount = 订单满额减
+    const od = p?.ruleDetail?.orderDiscount;
+    const threshold = num(od?.startDiscountPoint);
+    const discount = num(od?.discount);
+    const rate = threshold > 0 ? round(discount / threshold, 4) : null;
+
+    // beTypes 映射：1 到店自取 / 2 麦乐送 / 5 得来速 / 6 团餐
+    const beTypeList = (p?.beTypes || []).map((x) => num(x)).filter((n) => n > 0);
+    const beTypeNames = { 1: "到店自取", 2: "麦乐送", 5: "得来速", 6: "团餐" };
+    const channelText = beTypeList.map((t) => beTypeNames[t] || `beType${t}`).join("、");
+
+    // 生效判定
+    const startAt = p?.startTime || null;
+    const endAt = p?.endTime || null;
+    const startD = startAt ? new Date(String(startAt).replace(" ", "T")) : null;
+    const endD = endAt ? new Date(String(endAt).replace(" ", "T")) : null;
+    const isLive = (!startD || startD <= now) && (!endD || endD >= now);
+
     return {
-      title: String(p?.title || p?.promotionName || p?.activityTitle || ""),
-      description: String(p?.description || p?.content || p?.remark || ""),
+      promotionId: String(p?.promotionId || ""),
+      type: String(p?.promotionType || ""),
+      // 规则本体
+      rule: od ? "order_discount" : "unknown",
+      threshold,
+      discount,
+      rate,
+      // 适用商品编码
+      itemCodes: (p?.products || []).map((x) => String(x.productCode || "")).filter(Boolean),
+      // 渠道
+      beTypes: beTypeList,
+      channelText,
+      // ⚠️ 渠道是否适用**不在这里判定** —— 它依赖当下的就餐方式
+      //    （到店自取 / 麦乐送 / 团餐），是运行时变量。
+      //    实测：同一个店按 beType=1 查到的规则可能全是团餐的，
+      //    按 beType=6 分析时又该生效 —— 若在采集阶段固化，
+      //    后续换渠道分析就无法恢复。判定统一放在 analyze/promotion-rules.mjs。
+      appliesToChannel: null,
+      // 生效期
+      startAt,
+      endAt,
+      isLive,
+      // 展示用
+      title: od
+        ? `满 ${threshold} 减 ${discount}`
+        : `促销 ${p?.promotionId || ""}`,
+      description: [
+        od ? `订单满 ¥${threshold} 减 ¥${discount}` : null,
+        rate ? `相当于 ${(rate * 100).toFixed(1)}% off` : null,
+        channelText ? `适用：${channelText}` : null,
+        endAt ? `截止 ${String(endAt).slice(0, 10)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     };
   });
+
+  return out;
 }
 
-/**
- * 解析 Markdown 形态的促销列表（`query-promotions` 返回 markdown-wrapper）。
- */
+/** 保留旧签名（传字符串时按 Markdown 解析）—— 仅供 fixture 回归使用。 */
 export function collectPromotionsMarkdown(rawText) {
   const s = String(rawText || "");
   const out = [];
@@ -451,6 +593,8 @@ export function collectPromotionsMarkdown(rawText) {
  * @param {Array}  [parts.orders]
  * @param {Array}  [parts.stores]
  * @param {Array}  [parts.promotions]
+ * @param {string} [parts.storeCode] 本次核对的门店
+ * @param {Array}  [parts.menu]      门店实时菜单
  * @param {Array}  [parts.errors]  采集失败项
  */
 export function assembleSnapshot(parts = {}) {
@@ -465,6 +609,10 @@ export function assembleSnapshot(parts = {}) {
     orders: parts.orders ?? [],
     stores: parts.stores ?? [],
     promotions: parts.promotions ?? [],
+    // 本次核对的门店 —— 渲染「门店优惠」区块时用来显示门店名
+    storeCode: parts.storeCode ?? null,
+    // 门店实时菜单 —— 用来算券的实际优惠额与凑单建议
+    menu: parts.menu ?? [],
     errors: parts.errors ?? [],
   };
 }
