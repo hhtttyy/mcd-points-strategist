@@ -117,7 +117,9 @@ scripts/
                 coupon-stack.mjs                 ← 组合计价、最优券组合、凑单陷阱
                 coupon-audit.mjs                 ← 沉默成本、同款不同价、券体检
                 coupon-schedule.mjs              ← 点单机会预测、二分图最大匹配排程
-  app/         collect  explore  stores  coupon-report  selftest-*  ← 唯一允许 IO 的层
+                diff.mjs                         ← 昨日今日增量（6 类变化）
+                asset-plan.mjs                   ← 积分影子价格、积分×券联合决策
+  app/         collect  explore  stores  patrol  dashboard  coupon-report  selftest-*
 ```
 
 **三条硬约束**：
@@ -133,6 +135,68 @@ scripts/
 **为什么这么分层**：算法层要能同时跑在 Node CLI 和浏览器 Demo 里（双端一致），
 所以它必须保持纯函数；采集层要能用**脱敏的历史响应**做离线回归测试，
 所以它也不能有 IO。两层分开，各自可测。
+
+---
+
+## 每天自动检测什么
+
+MCP 没有推送、没有 webhook —— 「每天自动检测」靠**两次快照的差分**实现。
+
+```bash
+# 每天跑一次（可挂 cron 或 WorkBuddy 定时任务）
+MCD_MCP_TOKEN=<token> node scripts/app/patrol.mjs
+```
+
+检出六类变化：
+
+| 变化 | 怎么识别的 |
+|---|---|
+| 🆕 **新活动** | 活动日历里出现没见过的「日期+标题」 |
+| 🆕 **新券** | 卡包里出现没见过的「券名+有效期」 |
+| ⛔ **下架** | 之前在售的兑换标的现在不在了 —— 防止为已结束的活动白攒分 |
+| ⏰ **临期** | 本月过期的积分 + 7 天内过期的券 |
+| 🧾 **你下了一单** | `order-list` 出现新的 `orderId` —— 官方 App 用的同一个账号 |
+| ✅ **券被核销** | 上次有、这次没有、且还没到期 |
+
+**第 5 条是闭环的关键**：你在手机上用官方 App 下单后，下一次巡检就能看到它，
+进而复盘这一单的实际收益并回校 `earnRate`。
+
+### 积分影子价格 —— 让积分和券能比大小
+
+```
+shadowPrice = 可达最优兑换标的的面值 / 所需积分     (元/积分)
+```
+
+用**你余额能达到的**最优档，而不是全站最优 —— 全站最优可能是 800 分档，
+但你只有 33.5 分，那个密度对你没意义。
+
+```
+1 积分 ≈ ¥0.138
+  → 376 积分 = ¥51.9
+  → 一张 ¥13.5 的券 = 98 积分
+  → 「该用券还是该攒分」变成一道可计算的题
+```
+
+> 目前 30 个高星参赛项目里只有 1 个做过积分影子价格（maimai-saver #23，115★）。
+> 本项目把它做成体系并贯穿到决策层。
+
+### 联合决策：积分 × 券一起排
+
+回答一个具体问题：**你现在有 800 积分和一张 ¥30 的券，该怎么花？**
+
+动作按「零成本 → 有成本」排序：
+
+```
+1. 领取 3 张可领券                              [执行]  零成本零风险
+2. 50 积分本月过期（约 ¥6.9）                            到期即清零
+3. 3 张券 7 天内过期（面值 ¥39.3 ≈ 284.7 积分）         按影子价格折算
+4. 用 24 积分抽奖，可抽 15 次                   [执行]
+5. 兑换「6.9元可乐麦炫酷」                             密度 0.1380 元/分
+```
+
+**临期券折算成积分是关键** —— 284.7 积分 > 抽奖一次 24 积分，用户立刻能判断优先级。
+
+完整公式见 [`references/patrol-algorithm.md`](references/patrol-algorithm.md)。
 
 ---
 
@@ -260,16 +324,28 @@ MCD_MCP_TOKEN=<your_token> node scripts/app/collect.mjs
 MCD_MCP_TOKEN=<your_token> node scripts/app/stores.mjs list
 MCD_MCP_TOKEN=<your_token> node scripts/app/stores.mjs pick <storeCode>
 
-# 分析
+# 采集 + 巡检
+MCD_MCP_TOKEN=<your_token> node scripts/app/patrol.mjs        # 巡检 + 昨日今日对比
+MCD_MCP_TOKEN=<your_token> node scripts/app/patrol.mjs --claim # 同时执行一键领券（需确认）
+
+# 看板（只读快照，无网络）
+node scripts/app/dashboard.mjs                    # 对话内看板
+node scripts/app/dashboard.mjs --channel pickup --hour 18
+node scripts/app/dashboard.mjs --full             # 完整巡检报告
+
+# 券专项
+node scripts/app/coupon-report.mjs                # 券体检 + 沉默成本 + 用券排程
+
+# 积分侧分析
 node scripts/points-strategist.mjs              # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 模拟积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
-node scripts/app/coupon-report.mjs               # 券体检 + 沉默成本 + 用券排程
 
-# 自检
+# 自检（共 211 项）
 node scripts/selftest.mjs               # 算法层 39 项
 node scripts/app/selftest-collect.mjs   # 采集层 65 项
 node scripts/app/selftest-coupon.mjs     # 券引擎 69 项
+node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 38 项
 ```
 
 **零依赖**，只需 Node 18+（内置 fetch）。

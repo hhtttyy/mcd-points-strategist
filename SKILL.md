@@ -2,9 +2,9 @@
 name: mcd-points-strategist
 display_name: 麦麦积分资产管家
 display_name_en: McDonald's Points Strategist
-description: "麦当劳麦享会积分资产运营助手。解决一个真实痛点：积分攒了不用、到期清零、兑换档位越攒越亏。基于麦当劳中国 MCP Server 的积分账户、积分商城、抽奖、优惠券、活动日历数据，诊断积分健康度（存活率/变现率/效率/临期安全度），计算每件兑换标的的积分价值密度（元/积分），识别「边际收益率递减」与「门槛-余额错配死锁」，用 0/1 背包求解最优兑换组合并给出帕累托前沿，最终输出按优先级排序的处置动作（先领零成本券 → 避开已下架标的 → 补差解锁高ROI档位 → 抽奖 → 兑换）。用户提到麦当劳积分、麦享会、积分过期、积分兑换、积分商城、积分抽奖、巨无霸兑换券、麦麦省优惠券、麦当劳省钱、我的积分有多少、积分能换什么、积分怎么用划算时触发。"
-description_zh: "把麦当劳积分当资产管理。基于 MCP 实时数据做四维健康度诊断、兑换标的积分价值密度排名、边际收益率递减识别、门槛-余额错配死锁检测、0/1 背包最优兑换组合求解与帕累托前沿，输出按优先级排序的处置动作清单。所有结论基于真实数据，不做无依据的期望值估计。"
-description_en: "Treat McDonald's loyalty points as an asset. Uses live MCP data for four-dimension health scoring, points-value-density ranking, diminishing-returns detection, threshold-balance deadlock diagnosis, 0/1 knapsack optimal redemption solving with Pareto frontier, and a priority-ordered action list. All conclusions are data-grounded; no fabricated expected values."
+description: "麦当劳麦享会积分与优惠券资产运营助手。基于麦当劳中国 MCP Server 的积分账户、积分商城、抽奖、三路优惠券（麦麦省可领/卡包持有/门店专属）、活动日历、门店促销与历史订单数据，做四维健康度诊断（存活率/变现率/效率/临期安全度）、积分价值密度排名（元/积分）与门槛-余额死锁检测、0/1 背包最优兑换组合与帕累托前沿、券的 5 类建模与保守叠加求解、券沉默成本与「真正可用天数」判定、用券排程（二分图最大匹配）、积分影子价格驱动的积分×券联合决策，以及每日巡检的昨日今日增量（自动发现新活动/新券/新订单/临期资产）。用户提到麦当劳积分、麦享会、积分过期、积分兑换、积分商城、积分抽奖、巨无霸兑换券、麦麦省优惠券、麦当劳省钱、今天有什么优惠、这家店怎么样、我的积分有多少、积分能换什么、积分怎么用划算、我的券快过期了、这些券该怎么用时触发。"
+description_zh: "把麦当劳积分与优惠券当资产管理。基于 MCP 实时数据做四维健康度诊断、积分价值密度排名、门槛-余额死锁检测、0/1 背包最优兑换求解与帕累托前沿、券的 5 类建模与保守叠加求解、券沉默成本与可用时段判定、用券排程（二分图最大匹配）、积分影子价格驱动的积分×券联合决策，以及每日巡检增量。输出按「零成本→有成本」排序的行动清单。所有结论基于真实数据，不做无依据的期望值估计。"
+description_en: "Treat McDonald's loyalty points and coupons as an asset portfolio. Live MCP data drives four-dimension health scoring, points-value-density ranking, threshold-balance deadlock diagnosis, 0/1 knapsack redemption with Pareto frontier, five-type coupon modelling with conservative stacking, coupon silent-cost and true-usable-day computation, bipartite-matching coupon scheduling, and a points-shadow-price engine that lets points and coupons compete on one scale. Includes daily patrol with snapshot diffing. All conclusions are data-grounded; no fabricated expected values."
 category: finance
 version: 1.0.0
 author: hantianyi
@@ -88,27 +88,59 @@ agent_created: true
 | `query-my-account` | 积分账户（可用/累计/已用/已过期/临期） | ✅ |
 | `mall-points-products` | 积分商城标的（含 `point`/`downTime`） | ✅ |
 | `query-lottery-info` | 抽奖活动（单次消耗、奖品列表） | ✅ |
-| `query-my-coupons` | 已持有的券 | 建议 |
-| `available-coupons` | 可领取的零成本券 | 建议 |
-| `campaign-calendar` | 活动日历（含积分加速活动） | 建议 |
-| `order-list` | 历史订单（用于校准积分获取速率） | 可选 |
+| `query-my-coupons` | 已持有的券（**唯一能拿到券有效期与限制的来源**） | ✅ |
+| `available-coupons` | 可领取的零成本券（**账户全域，与门店无关**） | ✅ |
+| `campaign-calendar` | 活动日历（必传 `specifiedDate`） | 建议 |
+| `query-store-coupons` | 门店专属券（需 `storeCode`） | 查门店时 |
+| `query-promotions` | 门店级促销（需 `storeCode`，**未在官方文档中**） | 查门店时 |
+| `query-nearby-stores` | 定位门店拿 `storeCode`（必传 `beType`+`searchType`） | 查门店时 |
+| `order-list` | 历史订单（识别新下单、校准 earnRate） | 建议 |
 | `now-time-info` | 服务器当前时间（判断上下架的基准） | ✅ |
 
 > ⚠️ **不要调用** `create-order`、`mall-create-order`、`draw-lottery`、`auto-bind-coupons`、
 > `party-order-create` 等产生消费的写操作，除非用户明确要求并二次确认。
 
+> ⚠️ **券必须三路查全**：`available-coupons`（账户全域可领）/ `query-my-coupons`（卡包持有，
+> 含有效期）/ `query-store-coupons`（门店可用）。实测同一用户卡包 9 张、该门店只认 2 张 ——
+> 只查一路会漏掉最优组合，也会漏算沉默成本。
+
 ### Step 3 · 运行分析引擎
 
 ```bash
-# 用真实 MCP 数据生成快照（会脱敏）
-MCP_TOKEN=<token> node scripts/fetch-mcd-data.mjs
+# 采集 + 巡检（会落盘到 data/，已 gitignore）
+MCD_MCP_TOKEN=<token> node scripts/app/patrol.mjs            # 巡检 + 与上次对比
+MCD_MCP_TOKEN=<token> node scripts/app/patrol.mjs --claim    # 同时执行一键领券（需确认）
 
-# 分析
+# 看板（只读快照，无网络）
+node scripts/app/dashboard.mjs                # 对话内看板
+node scripts/app/dashboard.mjs --channel pickup --hour 18
+node scripts/app/dashboard.mjs --full         # 完整巡检报告
+
+# 券专项
+node scripts/app/coupon-report.mjs            # 券体检 + 沉默成本 + 用券排程
+
+# 积分侧分析
 node scripts/points-strategist.mjs            # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 假设积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
-node scripts/selftest.mjs                     # 算法自检（39 项）
+
+# 自检
+node scripts/selftest.mjs               # 算法层 39 项
+node scripts/app/selftest-collect.mjs   # 采集层 65 项
+node scripts/app/selftest-coupon.mjs     # 券引擎 69 项
+node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 38 项
 ```
+
+**分层约束**（本项目架构的核心纪律）：
+
+```
+app/     → 唯一允许 IO（发网络请求、读写文件）的层
+analyze/ → 纯函数：(输入JSON) => (输出JSON)
+collect/ → 纯函数：MCP 原始响应 => 契约对象
+lib/     → 协议与数据契约
+```
+
+依赖方向严格单向 `app → analyze → collect → lib`。**不要在 analyze/ 里写 IO。**
 
 `scripts/points-engine.mjs` 是零依赖纯函数库，浏览器 Demo 复用同一份实现，
 保证 CLI 与网页结论完全一致。
@@ -124,6 +156,18 @@ node scripts/selftest.mjs                     # 算法自检（39 项）
 4. **死锁诊断** —— 若死锁，给出精确补差金额（¥）与目标档位
 5. **行动清单** —— 按优先级排序，每条含动作、成本、理由
 
+**涉及券时，额外必须说明**：
+
+- 券的**真正可用天数**（不是剩余日历天数）—— 券常带星期与时段限制
+- **沉默成本**：手里 N 张券将在 X 天内过期，未用则白扔 ¥Y
+- 券的**等值积分**（按影子价格折算）—— 让积分与券能直接比大小
+
+**用户问「今天有什么优惠 / 这家店怎么样」时**：
+
+1. 先 `auto-bind-coupons` 领券（**账户全域，与门店无关，可先做**）
+2. 再 `query-nearby-stores` 定位门店 → `query-store-coupons` + `query-promotions` 核对该店
+3. 结合积分给出方案
+
 ### Step 5 · 引导执行（需确认）
 
 - 领券：`auto-bind-coupons` —— 零成本，优先执行
@@ -138,6 +182,10 @@ node scripts/selftest.mjs                     # 算法自检（39 项）
 - **每件商品单独成单**：`mall-create-order` 要求单个商品一个订单，多件兑换需分别下单。
 - **仅 `shopId=2` 支持积分兑换**：`shopId=5` 是派对预约通道（现金）。
 - **抽奖不含概率**：`query-lottery-info` 不暴露奖品概率分布，**禁止编造期望值**。
+- **单位方向相反**：`order-list` 的 `realTotalAmount` 已是**元**，`calculate-price`/`mall-*` 是**分**。
+  误换算会让消费画像缩小 100 倍。
+- **不拿营销文案算钱**：活动日历与 `mall-product-detail` 的 `note` 里的价格不可核实，一律丢弃。
+- **不把「有活动」说成「更便宜」** —— 那是两回事。
   只能给出价值区间与盈亏平衡概率（见 `references/algorithm.md`）。
 
 ## 参考文档
