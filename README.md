@@ -1,16 +1,44 @@
-# 麦麦积分资产管家 · mcd-points-strategist
+# 麦门资产管家 · 积分与券双资源运营
 
-> **你的积分不是攒出来的，是漏掉的。**
+> **你的积分和券不是攒出来的，是漏出来的。**
 >
-> 一个基于麦当劳中国 MCP 真实数据的积分资产分析 Skill —— 诊断积分衰减、
-> 算出兑换档位的真实收益率、避开已下架陷阱、求解最优兑换组合。
+> 基于麦当劳中国 MCP 真实数据，把**积分**和**优惠券**当两份资产来经营：
+> 每天自动巡检 → 用「积分影子价格」把两种资源拉到同一标尺比大小 →
+> 按零成本到有成本排序给出动作 → 强制确认后执行 → 记账复盘回校 earnRate。
 
-**🎮 在线试算（无需登录）**：<https://hhtttyy.github.io/mcd-points-strategist/>
-拖动滑块模拟你的积分余额，立刻看清结论。
+<table>
+<tr>
+<td width="50%"><img src="docs/images/demo-hero.png" alt="在线 Demo 首屏" /></td>
+<td width="50%"><img src="docs/images/demo-coupon.png" alt="券引擎：真正能用的限制" /></td>
+</tr>
+<tr>
+<td align="center"><sub>🎮 <b>在线试算（无需登录）</b><br>拖动滑块模拟积分余额，立刻看清结论</sub></td>
+<td align="center"><sub>🎫 <b>券引擎</b><br>不只算面值，还算「哪几天真的能用」</sub></td>
+</tr>
+</table>
 
-> 💡 **这是离线演示版**，用脱敏快照驱动，展示的是**算法内核**。
-> 实时看板与闭环在 WorkBuddy 里 —— 把本目录装成 Skill 后直接对话使用即可。
-> 两端跑的是**同一份** `points-engine.mjs`，结论永远一致。
+**▶ 立即体验：<https://hhtttyy.github.io/mcd-points-strategist/>**
+
+> 💡 **这是离线演示版**，用合成数据驱动（字段结构与真实 MCP 响应完全一致）。
+> 实时看板与完整闭环在 WorkBuddy 里 —— 把本目录装成 Skill 后直接对话使用即可。
+> 两端跑的是**同一份**引擎，结论永远一致。
+
+**为什么值得看一眼**：麦当劳官方文档没说清每个工具实际返回什么。
+本项目连真实 MCP Server 跑通后，挖出并实测记录了 **12 条官方未说明的契约**
+（见 [`references/mcp-pitfalls.md`](references/mcp-pitfalls.md)）——
+包括「券的 `weekdays` 数组是 1=周日」这种**错了每个周末都判错**的隐蔽坑。
+
+**核心能力**
+
+| 能力 | 做什么 | 独特性 |
+|---|---|---|
+| 积分影子价格 | 1 积分 ≈ ¥0.1380（用**余额够得到**的最优档，不是全站最优） | 让积分与券可直接比大小 |
+| 券的真正可用天数 | 自然天数 / 真正能用的天数 / 此刻能不能用，三维分开 | 「还剩 4 天」≠「有 4 天能用」 |
+| 用券排程 | 二分图最大匹配，最大化「排得出去的券数」 | **本项目独有** |
+| 券实际优惠额 | `calculate-price` 跑两次算真实省了多少 | 不是「面值」，是**实省** |
+| earnRate 回校 | 从账户增量反推积分获取速率，回喂决策 | 补差金额越用越准 |
+
+`335 项自检全绿` · `4 层单向依赖` · `CLI 与浏览器 Demo 双端一致` · `MIT`
 
 麦当劳程序员创意开发大赛参赛作品 · 非麦当劳官方产品
 
@@ -71,6 +99,67 @@
 
 不剔除这些，你会为了一个结束已久的活动白攒分。本项目在采集阶段就计算上下架状态，
 **所有计算路径强制过滤**。
+
+---
+
+## 官方文档没说清的那些坑（本项目实测挖出）
+
+麦当劳官方文档只列了 33 个工具名，**没说清每个工具实际返回什么**。
+本项目连真实 MCP Server 跑通后，逐条实测并记录在
+[`references/mcp-pitfalls.md`](references/mcp-pitfalls.md)（12 条）。
+下面 5 条是**最容易让人算错**的 —— 每一条都曾在本项目里造成静默错误结论：
+
+### ① 券的 `weekdays` 是 **1=周日**，不是 0=周日
+
+券的 `tradeStartDateTime` 是周一、`tradeEndDateTime` 是周五，
+同一张券的 `instructions.availableTime` 文案写着「周一、二、三、四、五」，
+而 `weekdays` 数组是 `[2,3,4,5,6]` —— 只能是 1=周日。
+
+按 0=周日 解读会得到「周二~周六」，**每个周末和每个周一都判错**。
+本项目三处代码曾各用一套编码，现已全链统一为 `0=周日`（= JS `getDay()`）。
+
+### ② `discountDesc: "用券价格"` 是**你付的钱**，不是省的钱
+
+实测「1024码力翻倍 ¥20.48」= 龙焰鸡腿堡两件套**到手价 ¥20.48**，
+真实优惠额是 **¥13.52**（原价 ¥34）。当成减免额会让沉默成本与积分折算全部虚高。
+
+想拿到真实优惠额，只能用 `calculate-price` 跑两次（只读，不创建订单）：
+不带券取原价、带券取实付与减免。**注意不带券时可能返回全 0**（原价不可售）——
+绝不能拿 0 当原价。
+
+### ③ `query-promotions` **忽略传入的 beType**
+
+传 `beType=1`（到店）返回 12 条，但全部 `beTypes:["6"]`（团餐）；
+传 2 或 6 都返回 0 条。用 `calculate-price` 算 ¥3510 的订单，到店场景减免确实是 **0**。
+
+→ 必须按 `beTypes` 字段过滤，并如实告知「这些是团餐规则，你到店用不上」。
+
+### ④ 三个接口两种金额单位
+
+| 接口 | 单位 | 判别法 |
+|---|---|---|
+| `order-list` 的 `realTotalAmount` | **元** | 带两位小数（`"36.5"`） |
+| `calculate-price` / `mall-*` | **分** | 纯整数（`1350`） |
+
+误换算会让客单价与消费画像**缩小 100 倍**且不报错。
+
+### ⑤ 券的三路来源必须**逐字段取并集**
+
+同一张券在三路的字段分布（实测）：
+
+| 字段 | 卡包 | 门店 |
+|---|---|---|
+| `value`（用券价格） | ✅ 20.48 | ❌ 0（接口不返回） |
+| `dayWindow` / `weekdays` | ✅ 10:30-23:59 | ❌ 无 |
+| `itemCodes`（适用商品） | ❌ 无 | ✅ `9900016523` |
+
+二选一必然丢信息：选门店那份 → 丢掉「何时能用」；选卡包那份 → 丢掉适用商品编码，
+**无法定位菜品、无法测算优惠额**。合并还要注意「0 不应覆盖非 0」。
+
+> 这份文档不是纸上谈兵 —— 项目里的 `fixtures/live/` 存着**原样真实响应**，
+> `selftest-live.mjs` 用它做回归。早期只有脱敏重构过的 fixture，
+> 结果解析器在 fixture 上全绿、在真实链路上**全空**。
+> 完整清单见 [`references/mcp-pitfalls.md`](references/mcp-pitfalls.md)。
 
 ---
 
@@ -418,14 +507,14 @@ node scripts/points-strategist.mjs --json       # 结构化输出
 # 券实际价值测算（用 calculate-price 算出券到底省多少）
 node scripts/app/measure-coupons.mjs --store 1950979
 
-# 自检（共 314 项）
+# 自检（共 335 项）
 node scripts/selftest.mjs               # 算法层 39 项
 node scripts/app/selftest-collect.mjs   # 采集层 65 项
-node scripts/app/selftest-coupon.mjs     # 券引擎 68 项
+node scripts/app/selftest-coupon.mjs     # 券引擎 75 项
 node scripts/app/selftest-patrol.mjs     # 巡检与联合决策 45 项
 node scripts/app/selftest-execute.mjs    # 执行层与复盘 31 项
 node scripts/app/selftest-live.mjs       # 真实响应回归 33 项 ★
-node scripts/app/selftest-value.mjs      # 券价值与门店促销 33 项
+node scripts/app/selftest-value.mjs      # 券价值与门店促销 47 项
 ```
 
 > ⚠️ `selftest-live.mjs` 用 `fixtures/live/` 里的**原样真实响应**做回归。
@@ -606,5 +695,38 @@ now-time-info           → 基准时间
 - 麦当劳 MCP Server：<https://github.com/M-China/mcd-mcp-server>
 - 比赛主仓库：<https://github.com/M-China/mcd-developer-innovation-challenge>
 - 在线 Demo：<https://hhtttyy.github.io/mcd-points-strategist/>
+- 实测契约文档：<https://github.com/hhtttyy/mcd-points-strategist/blob/main/references/mcp-pitfalls.md>
+
+## English summary
+
+**McDonald's Points & Coupon Asset Manager** — a WorkBuddy Skill that treats
+loyalty points and coupons as two assets to be managed, not two balances to be watched.
+
+- **Points shadow price** — converts points and coupons onto one scale
+  (`1 point ≈ ¥0.1380`) using the best redemption tier *your balance can actually reach*,
+  so the two resources become directly comparable.
+- **Real coupon usability** — separates *calendar days left* from *days you can really use*
+  (weekday / time-window / channel constraints are parsed from native fields, not regex).
+- **Coupon scheduling** — bipartite maximum matching to maximise how many coupons
+  can actually be redeemed on your real ordering cadence.
+- **True coupon savings** — computed by pricing the basket twice via `calculate-price`,
+  because `用券价格` means *what you pay*, not *what you save*.
+- **Closed loop** — daily diffing → unified valuation → confirmed execution → ledger →
+  `earnRate` recalibrated from account deltas, feeding back into the next decision.
+
+Built on the official McDonald's China MCP Server. Ships **12 documented, empirically
+verified response contracts** the official docs omit — including the `weekdays` array
+using `1=Sunday` semantics, which silently corrupts every weekend judgement.
+
+`335` self-test assertions · strict one-way layering (`app → analyze → collect → lib`) ·
+identical engine shared by the CLI and the browser demo.
+
+## 如果这个项目帮到你了
+
+Star 是这个比赛唯一的排名依据（榜单前 100 名才能拿到 WorkBuddy 积分与实物周边），
+所以如果你觉得「积分影子价格」「券的真正可用天数」「用券排程」有用，
+**点一下 ⭐ Star** —— 这是最直接的帮助。
+
+也欢迎提 issue 讨论：<https://github.com/hhtttyy/mcd-points-strategist/issues>
 
 MIT License · 麦当劳程序员创意开发大赛参赛作品
