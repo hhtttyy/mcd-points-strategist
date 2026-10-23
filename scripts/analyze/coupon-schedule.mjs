@@ -62,12 +62,15 @@ export function forecastOrders(orders = [], opts = {}) {
   for (let i = 0; i < maxOrders; i++) {
     cursor = new Date(cursor.getTime() + cadenceDays * 86400000);
     if ((cursor.getTime() - now.getTime()) / 86400000 > horizonDays) break;
-    const dow = cursor.getDay() === 0 ? 6 : cursor.getDay() - 1;
+    // ⚠️ 星期编码统一为 **0=周日**（JS getDay() 原生语义），
+    //    与 collect 层转换后的 coupon.weekdays 保持一致。
+    //    早期这里用「0=周一」，与券的星期限制差一位 —— 排程会连错边。
+    const dow = cursor.getDay();
     upcoming.push({
       index: i + 1,
       date: cursor.toISOString().slice(0, 10),
       dow,
-      dowText: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"][dow],
+      dowText: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][dow],
       hour: 12,
     });
   }

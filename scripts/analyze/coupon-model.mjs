@@ -256,6 +256,22 @@ export function checkUsable(coupon, ctx = {}) {
       return { ok: false, reason: `可用时段 ${coupon.dayWindow}，当前不在时段内` };
     }
   }
+  // ⚠️ 星期判定（此前完全缺失）。
+  //    实测（2026-10-23）：券的 `weekdays` = 周一~周五，
+  //    而周六它其实不能用 —— 但看板只说「仅 N 天能用」，
+  //    没说「哪几天能用」，用户会以为每天都能用。
+  //
+  //    编码：0=周日（与 collect 层转换后一致，与 JS getDay() 一致）。
+  if (coupon.weekdays?.length) {
+    const dow = at.getDay();
+    if (!coupon.weekdays.includes(dow)) {
+      const WD = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+      return {
+        ok: false,
+        reason: `仅限${coupon.weekdayText || coupon.weekdays.map((w) => WD[w]).join("、")}使用，今天是${WD[dow]}`,
+      };
+    }
+  }
   return { ok: true, reason: "" };
 }
 
@@ -319,7 +335,11 @@ export function computeUsableSlots(coupon, { now = new Date(), horizonDays = 90 
   cursor.setHours(0, 0, 0, 0);
   while (cursor <= end && total < horizonDays) {
     total += 1;
-    const dow = cursor.getDay() === 0 ? 6 : cursor.getDay() - 1; // 0=周一
+    // ⚠️ 统一用 **0=周日**（JS `getDay()` 原生语义）。
+    //    券的 weekdays 数组在 collect 层已从「1=周日」转换到「0=周日」，
+    //    这里必须用同一套编码 —— 早期版本这里用「0=周一」，
+    //    与 collect 层的「0=周日」差一天，导致每个周末和周一都判错。
+    const dow = cursor.getDay();
     if (weekdays.length && !weekdays.includes(dow)) {
       unusableDays += 1;
     } else {

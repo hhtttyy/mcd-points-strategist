@@ -93,9 +93,14 @@ export function resolveMallStatus(upTime, downTime, now = new Date()) {
  *   「2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59」
  *   「2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29」
  *
- * 周一 = 0，周日 = 6。空数组 = 不限。
+ * ⚠️ 编码统一为 **0=周日**（与 JS `getDay()` 一致）：
+ *   周日=0、周一=1、周二=2、周三=3、周四=4、周五=5、周六=6。空数组 = 不限。
+ *
+ *   这个编码必须与原生 `weekdays` 数组（1=周日，转换后减 1）以及
+ *   analyze 层的 `getDay()` 判定完全一致 —— 三处曾经各用一套，
+ *   导致券的可用天数算错、星期判定错位一天。
  */
-const WEEKDAY_MAP = { 一: 0, 二: 1, 三: 2, 四: 3, 五: 4, 六: 5, 日: 6, 天: 6 };
+const WEEKDAY_MAP = { 日: 0, 天: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6 };
 
 export function parseWeekdays(text) {
   const s = String(text || "");
@@ -354,16 +359,48 @@ export function collectMyCouponsJson(data) {
       ? `${String(periods[0].startTime || "").slice(0, 5)}-${String(periods[0].endTime || "").slice(0, 5)}`
       : "";
 
-    // 星期：原生数组。isAllTradeTime=1 表示不限。
+    // ⚠️⚠️ 星期数组的编码是 **1=周日**（即 JS `getDay()` + 1），
+    //    不是 JS `getDay()` 的 0=周日 —— **整体差一位**。
+    //
+    //    实测证据（2026-10-23 六道口店）：
+    //      券的 tradeStartDateTime = 2026-10-19（周一）
+    //      tradeEndDateTime   = 2026-10-23（周五）
+    //      同一张券的 instructions.availableTime 文案写着「周一、二、三、四、五」
+    //      而 weekdays 数组是 [2,3,4,5,6]
+    //      → 2=周一、3=周二、4=周三、5=周四、6=周五 ✓ 与文案完全一致
+    //      → 若按 0=周日 解读会得到「周二~周六」，与文案矛盾
+    //
+    //    错位的实际后果（实测）：
+    //      周六 真实不可用 → 我的旧代码判为可用
+    //      周一 真实可用   → 我的旧代码判为不可用
+    //    也就是说**每个周末和每个周一都会判错**。
+    //
+    //    统一在这里转成内部约定的 **0=周日**（与 JS getDay() 一致），
+    //    下游全部按 0=周日 处理。
     const isAll = c.isAllTradeTime === 1 || c.isAllTradeTime === "1";
     const weekdays = isAll
       ? []
-      : (Array.isArray(c.weekdays) ? c.weekdays : []).map((w) => Number(w)).filter((n) => n >= 0 && n <= 6);
+      : (Array.isArray(c.weekdays) ? c.weekdays : [])
+          .map((w) => Number(w))
+          .filter((n) => n >= 1 && n <= 7)
+          .map((n) => n - 1); // 1=周日 → 0=周日
 
     // 渠道：原生标签。实测 "到店" / "外送" / "到店、外送"
     const labels = (c.instructions?.labels || []).map((l) => String(l.text || ""));
     const labelText = labels.join("、");
     const channel = parseChannel(labelText);
+
+    // ⚠️ 服务端的 `instructions.availableTime` 里带**权威文案**：
+    //   [{ text: "2026.10.19-2026.10.23", type: 1 },
+    //    { text: "周一、二、三、四、五", type: 2 },   ← 星期说明
+    //    { text: "10:30-23:59", type: 1 }]
+    //   直接用它作为 weekdayText，比自己从数组反推更可靠
+    //   （数组编码有坑，文案不会错）。
+    const availText = (c.instructions?.availableTime || []).map((t) => String(t.text || ""));
+    const serverWeekdayText = availText.find((t) => /周[一二三四五六日]/.test(t)) || "";
+    const serverWindowText = availText.find((t) => /\d{1,2}:\d{2}\s*[-–~]\s*\d{1,2}:\d{2}/.test(t)) || "";
+    // 渠道也可能只在 availableTime 里（如「到店专用」）
+    const channelFromAvail = availText.find((t) => /到店|外送|麦乐送|专享/.test(t)) || "";
 
     const startAt = c.tradeStartDateTime || null;
     const endAt = c.tradeEndDateTime || null;
@@ -384,9 +421,14 @@ export function collectMyCouponsJson(data) {
       dayWindow,
       dayWindows: periods.map((p) => `${String(p.startTime || "").slice(0, 5)}-${String(p.endTime || "").slice(0, 5)}`),
       weekdays,
-      weekdayText: weekdays.length ? weekdays.map((w) => "周" + "一二三四五六日"[w]).join("、") : "不限",
-      channel,
+      // ⚠️ 优先用服务端文案（「周一、二、三、四、五」），它比数组反推可靠
+      // ⚠️ 索引顺序必须与编码一致：0=周日 → "日一二三四五六"
+      weekdayText: serverWeekdayText || (weekdays.length ? weekdays.map((w) => "周" + "日一二三四五六"[w]).join("、") : "不限"),
+      channel: channel.length ? channel : parseChannel(channelFromAvail),
       labelText,
+      // 服务端给的状态标签（如「未到使用时间」「到店」）
+      serverLabel: labels.join("、"),
+      availableTexts: availText,
       receivedText: "",
       source: "my",
       status: "已领取",

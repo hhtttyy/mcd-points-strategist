@@ -369,6 +369,16 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
         if (!pv) merged[k] = v;
         continue;
       }
+      // ⚠️ weekdayText：门店券路径没有 availableTime 文案（硬编码「不限」），
+      //    卡包券路径有服务端原文（「周一、二、三、四、五」）。
+      //    「不限」是**占位值**不是真值 —— 合并时若让门店那份的「不限」
+      //    覆盖卡包那份的真文案，券明明限周一~周五却显示「不限」。
+      //    规则：只要有一方给出真文案，就用真文案。
+      if (k === "weekdayText") {
+        if (pv === "不限" && v && v !== "不限") merged[k] = v;
+        else if (v === "不限" && pv && pv !== "不限") merged[k] = pv; // 保留已有的真文案
+        continue;
+      }
       // 其余：门店源优先（它更贴近「当前门店可用」的真实场景）
       if (c.source === "store" && prev.source !== "store") merged[k] = v;
     }

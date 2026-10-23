@@ -147,10 +147,11 @@ const weekdayCoupon = {
 };
 const singleDayCoupon = {
   name: "大脆鸡扒堡早餐两件套",
-  // 10-22 是周四，与 weekdays [3] 一致
-  expireAt: "2026-10-22T02:29:00Z",
+  // 10-22 是周四，getDay()=4 —— 星期编码统一为 0=周日
+  // ⚠️ 时刻用**本地时间字符串**构造，避免 UTC/本地时区歧义
+  expireAt: "2026-10-22T10:29:00",
   validFrom: null,
-  weekdays: [3], // 仅周四
+  weekdays: [4], // 仅周四（0=周日 → 周日0 周一1 周二2 周三3 周四4）
   dayWindow: "05:00-10:29",
 };
 
@@ -161,8 +162,8 @@ check("工作日券：周末被算成不可用（剩余 6 天但只有 4 天能�
 check("单日券：不可用天数不应算进有效期（尚未生效 ≠ 不生效）", () => {
   const future = {
     ...singleDayCoupon,
-    expireAt: "2026-10-22T02:29:00Z",
-    validFrom: "2026-10-22T00:00:00Z",
+    expireAt: "2026-10-22T10:29:00",
+    validFrom: "2026-10-22T00:00:00",
   };
   const s = computeUsableSlots(future, { now: NOW });
   return eq(s.unusableDays, 0);
@@ -358,10 +359,12 @@ check("很久以后到期的券不计入风险", () => {
 });
 check("券面价值无法确定的券要单独说明", () => {
   const r = computeSilentCost(
-    [...riskCoupons, { name: "价值未知券", value: 0, status: "已领取", expireAt: "2026-10-16T22:00:00Z" }],
+    [...riskCoupons, { name: "价值未知券", value: 0, status: "已领取", expireAt: "2026-10-16T22:00:00" }],
     { now: NOW, expiringWithin: 7 }
   );
-  return truthy(r.unknownCount >= 1 && r.narrative.includes("未计入面值"));
+  // ⚠️ 文案用「未计入金额」而不是「未计入面值」——
+  //    coupon_price 语义下那个数字是到手价，不能叫面值。
+  return truthy(r.unknownCount >= 1 && r.narrative.includes("未计入金额"));
 });
 check("没有券时给出明确结论", () => {
   const r = computeSilentCost([], { now: NOW });
@@ -369,6 +372,37 @@ check("没有券时给出明确结论", () => {
 });
 
 // --------------------------------------------------------------------------
+console.log("\n【星期编码 · 0=周日 全链一致】");
+check("周四券的 weekdays 用 0=周日 编码（4=周四）", () => {
+  return eq(singleDayCoupon.weekdays, [4]);
+});
+check("周四当天判定为可用", () => {
+  const r = checkUsable(singleDayCoupon, { at: "2026-10-22T06:00:00", hour: 6 });
+  return eq(r.ok, true);
+});
+check("周二当天判定为不可用，并说明原因", () => {
+  const r = checkUsable(singleDayCoupon, { at: "2026-10-20T06:00:00", hour: 6 });
+  return eq([r.ok, /仅限.*周四/.test(r.reason)], [false, true]);
+});
+check("周六对「周一~周五」券不可用（编码错位的高发日）", () => {
+  // 有效期要够长，否则先被「已过期」拦下，测不到星期判定
+  const wdCoupon = { ...singleDayCoupon, expireAt: "2026-11-30T10:29:00", weekdays: [1, 2, 3, 4, 5] };
+  const sat = checkUsable(wdCoupon, { at: "2026-10-24T06:00:00", hour: 6 }); // 周六
+  const mon = checkUsable(wdCoupon, { at: "2026-10-26T06:00:00", hour: 6 }); // 周一
+  return eq([sat.ok, mon.ok], [false, true]);
+});
+check("星期不可用时给出「今天周几」的原因", () => {
+  const wdCoupon = { ...singleDayCoupon, expireAt: "2026-11-30T10:29:00", weekdays: [1, 2, 3, 4, 5] };
+  const r = checkUsable(wdCoupon, { at: "2026-10-24T06:00:00", hour: 6 });
+  return eq(/仅限.*今天是周六/.test(r.reason), true);
+});
+check("可用天数按 0=周日 编码统计", () => {
+  // 10-19(周一) 起算 5 天 → 10-19~10-23 全在周一~周五内 → 5 天可用
+  const wdCoupon = { ...singleDayCoupon, expireAt: "2026-10-23T23:59:59", weekdays: [1, 2, 3, 4, 5] };
+  const s2 = computeUsableSlots(wdCoupon, { now: new Date("2026-10-19T08:00:00") });
+  return eq(s2.usableDays, 5);
+});
+
 console.log("\n【同款不同价】");
 // --------------------------------------------------------------------------
 check("同名不同面额 → 指出该换便宜的", () => {

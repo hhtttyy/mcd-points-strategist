@@ -106,8 +106,11 @@ check("无时间信息 → live", () => eq(resolveMallStatus(null, null), "live"
 console.log("\n【星期与时段解析 —— 「还剩 4 天」≠「有 4 天能用」】");
 const multiDay = "2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59";
 const singleDay = "2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29";
-check("多日券星期 → [0,1,2,3,4]", () => eq(parseWeekdays(multiDay), [0, 1, 2, 3, 4]));
-check("单日券星期 → [3]", () => eq(parseWeekdays(singleDay), [3]));
+// ⚠️ 星期编码统一为 **0=周日**（与 JS getDay() 一致）：
+//   周日0 周一1 周二2 周三3 周四4 周五5 周六6
+//   早期版本用「0=周一」，与原生 weekdays 数组差一位 —— 每个周末和周一都判错。
+check("多日券星期「周一~周五」→ [1,2,3,4,5]", () => eq(parseWeekdays(multiDay), [1, 2, 3, 4, 5]));
+check("单日券星期「周四」→ [4]", () => eq(parseWeekdays(singleDay), [4]));
 check("多日券时段 → 10:30-23:59", () => eq(parseDayWindow(multiDay), "10:30-23:59"));
 check("单日券时段 → 05:00-10:29", () => eq(parseDayWindow(singleDay), "05:00-10:29"));
 check("无星期限制 → []", () => eq(parseWeekdays("2026-10-12 到期"), []));
@@ -176,9 +179,9 @@ if (myRaw) {
       ? true
       : "面值未解析"
   );
-  check("解析出星期限制 [0,1,2,3,4]", () => {
+  check("解析出星期限制 [1,2,3,4,5]（0=周日 编码）", () => {
     const c = coupons.find((x) => x.name === "中薯条买一送一");
-    return eq(c?.weekdays, [0, 1, 2, 3, 4]);
+    return eq(c?.weekdays, [1, 2, 3, 4, 5]);
   });
   check("解析出渠道 ['pickup','delivery']", () => {
     const c = coupons.find((x) => x.name === "中薯条买一送一");
