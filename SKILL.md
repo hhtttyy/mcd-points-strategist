@@ -146,7 +146,7 @@ node scripts/selftest.mjs                     # 算法自检（39 项）
 - `references/mcp-tools.md` —— 麦当劳 MCP 工具清单与字段说明
 - `references/playbook.md` —— 常见场景处置话术
 - `fixtures/mcd-snapshot.json` —— 脱敏示例数据（2026-10-23 采集）
-- 在线 Demo：<https://hantianyi.github.io/mcd-points-strategist/>
+- 在线 Demo：<https://hhtttyy.github.io/mcd-points-strategist/>
 
 ## 免责声明
 

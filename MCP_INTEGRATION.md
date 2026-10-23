@@ -160,7 +160,7 @@ node scripts/points-strategist.mjs
 node scripts/selftest.mjs
 ```
 
-在线 Demo（零登录可玩）：<https://hantianyi.github.io/mcd-points-strategist/>
+在线 Demo（零登录可玩）：<https://hhtttyy.github.io/mcd-points-strategist/>
 
 ---
 

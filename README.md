@@ -5,7 +5,7 @@
 > 一个基于麦当劳中国 MCP 真实数据的积分资产分析 Skill —— 诊断积分衰减、
 > 算出兑换档位的真实收益率、避开已下架陷阱、求解最优兑换组合。
 
-**🎮 在线试算（无需登录）**：<https://hantianyi.github.io/mcd-points-strategist/>
+**🎮 在线试算（无需登录）**：<https://hhtttyy.github.io/mcd-points-strategist/>
 拖动滑块模拟你的积分余额，立刻看清结论。
 
 麦当劳程序员创意开发大赛参赛作品 · 非麦当劳官方产品
@@ -247,6 +247,6 @@ now-time-info           → 基准时间
 
 - 麦当劳 MCP Server：<https://github.com/M-China/mcd-mcp-server>
 - 比赛主仓库：<https://github.com/M-China/mcd-developer-innovation-challenge>
-- 在线 Demo：<https://hantianyi.github.io/mcd-points-strategist/>
+- 在线 Demo：<https://hhtttyy.github.io/mcd-points-strategist/>
 
 MIT License · 麦当劳程序员创意开发大赛参赛作品

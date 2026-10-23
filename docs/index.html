@@ -219,7 +219,7 @@
     本项目为<strong>非麦当劳官方产品</strong>，输出仅供参考，不构成财务或消费建议。
     积分与商品数据以麦当劳官方渠道实时结果为准，实际兑换请在麦麦商城 / App 内操作。
     <br>
-    <a href="https://github.com/hantianyi/mcd-points-strategist">GitHub 源码</a> ·
+    <a href="https://github.com/hhtttyy/mcd-points-strategist">GitHub 源码</a> ·
     <a href="https://github.com/M-China/mcd-developer-innovation-challenge">比赛仓库</a>
   </p>
 </footer>
@@ -227,11 +227,11 @@
 </div>
 
 <script type="module">
-import * as E from "../scripts/points-engine.mjs";
+import * as E from "./_vendor/points-engine.mjs";
 
 // 数据来源：真实 MCP 采集快照（脱敏）。直接读取 fixtures 而非硬编码，
 // 保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
-const SNAP = await (await fetch("../fixtures/mcd-snapshot.json")).json();
+const SNAP = await (await fetch("./_data/mcd-snapshot.json")).json();
 
 const NOW = new Date(SNAP._generatedAt);
 const $ = (id) => document.getElementById(id);
