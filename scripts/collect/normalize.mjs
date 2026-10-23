@@ -11,21 +11,39 @@
  * 本模块是纯函数，不碰 IO。
  */
 
-/** 券：title → name */
+import {
+  parseChannel,
+  parseDayWindow,
+  parseExpireAt,
+  parseValidFrom,
+  parseWeekdays,
+  toIso,
+} from "./parse.mjs";
+
+/**
+ * 券：title → name
+ *
+ * 早期快照只存了 `expireText`（有效期原文）与 `labelText`（渠道标签），
+ * 这里把它们解析成结构化字段 —— 否则券引擎拿不到时段/星期/渠道限制，
+ * 「还剩几天」与「真正能用几天」就分不出来。
+ */
 function normalizeCoupon(c) {
   if (!c) return c;
+  const expireText = c.expireText ?? c.expire_text ?? "";
+  const labelText = c.labelText ?? c.label ?? c.channel_tags ?? "";
+
   return {
     ...c,
     name: c.name ?? c.title ?? "",
     value: num(c.value ?? c.faceValue),
     threshold: num(c.threshold),
-    expireAt: c.expireAt ?? null,
-    expireText: c.expireText ?? "",
-    dayWindow: c.dayWindow ?? "",
-    weekdays: Array.isArray(c.weekdays) ? c.weekdays : [],
-    weekdayText: c.weekdayText ?? "",
-    channel: Array.isArray(c.channel) ? c.channel : [],
-    validFrom: c.validFrom ?? null,
+    expireAt: c.expireAt ?? (expireText ? toIso(parseExpireAt(expireText)) : null),
+    expireText,
+    dayWindow: c.dayWindow ?? parseDayWindow(expireText),
+    weekdays: Array.isArray(c.weekdays) ? c.weekdays : parseWeekdays(expireText),
+    weekdayText: c.weekdayText ?? (expireText.match(/周[一二三四五六日天、,，\s]*/) || [""])[0].trim(),
+    channel: Array.isArray(c.channel) ? c.channel : parseChannel(labelText),
+    validFrom: c.validFrom ?? (expireText ? toIso(parseValidFrom(expireText)) : null),
     source: c.source ?? "mcd-savers",
     status: c.status ?? "已领取",
     itemCodes: Array.isArray(c.itemCodes) ? c.itemCodes : [],

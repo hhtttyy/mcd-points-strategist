@@ -58,6 +58,18 @@ export function renderDashboard(input = {}, opts = {}) {
   L.push(`🍔 **麦门日报 · ${today}**`);
   L.push("");
 
+  // ══ 数据新鲜度提示 ══
+  // 快照是旧的（比如回放历史数据）时，结论仍按「现在」算 —— 必须提示，
+  // 否则用户会把过期的券/额度当成现状。
+  const snapAt = snap.generatedAt ? new Date(snap.generatedAt) : null;
+  if (snapAt && !Number.isNaN(snapAt.getTime())) {
+    const ageHours = Math.floor((now.getTime() - snapAt.getTime()) / 3600000);
+    if (ageHours >= 24) {
+      L.push(`> ⚠️ 快照采集于 ${snapAt.toISOString().slice(0, 10)}（${Math.floor(ageHours / 24)} 天前），以下结论基于该时刻的数据。`);
+      L.push("");
+    }
+  }
+
   // ══ 变化（如果有）══
   if (!diff.isFirstRun) {
     const changes = [];

@@ -108,7 +108,13 @@
   .alert.r { background: var(--red-bg); border: 1px solid rgba(163,45,45,.22); color: #7a2020; }
   .alert.a { background: var(--amber-bg); border: 1px solid rgba(186,117,23,.25); color: #6d4409; }
   .alert.t { background: var(--teal-bg); border: 1px solid rgba(15,110,86,.22); color: #0b5342; }
+  .alert.i { background: var(--blue-bg); border: 1px solid rgba(24,95,165,.22); color: #12456f; }
   .alert b { font-weight: 600; }
+
+  .pill {
+    display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 999px;
+    background: var(--bg-raised); color: var(--ink-2); white-space: nowrap;
+  }
 
   ol.actions { list-style: none; padding: 0; margin: 0; counter-reset: act; }
   ol.actions li { counter-increment: act; position: relative; padding: 15px 18px 15px 54px; border-bottom: 1px solid var(--line); }
@@ -220,7 +226,19 @@
 <p class="sub">0/1 背包求解（每件商品单独成单），在积分预算内最大化现金价值</p>
 <div class="card" id="planCard"></div>
 
-<h2><span class="num">04</span>你的行动清单</h2>
+<h2><span class="num">04</span>券引擎 · 沉默成本</h2>
+<p class="sub">「还剩 4 天」≠「有 4 天能用」—— 券常带星期与时段限制，剩余日历天数会骗人</p>
+<div class="card" id="couponCard">
+  <p style="font-size:13.5px;color:var(--ink-3)">正在加载券数据…</p>
+</div>
+
+<h2><span class="num">05</span>积分影子价格 · 联合决策</h2>
+<p class="sub">把积分与券折算到同一标尺（元/积分）上，才能回答「该用券还是该攒分」</p>
+<div class="card" id="assetCard">
+  <p style="font-size:13.5px;color:var(--ink-3)">正在加载…</p>
+</div>
+
+<h2><span class="num">06</span>你的行动清单</h2>
 <p class="sub">按「即时收益 ÷ 成本」排序：先做零成本且能避免损失的动作</p>
 <div class="card">
   <ol class="actions" id="actions"></ol>
@@ -229,14 +247,15 @@
 <footer>
   <p>
     数据来源：麦当劳中国 MCP Server（<code>query-my-account</code>、<code>mall-points-products</code>、
-    <code>query-lottery-info</code>、<code>available-coupons</code>、<code>now-time-info</code>），
+    <code>query-lottery-info</code>、<code>available-coupons</code>、<code>query-my-coupons</code>、
+    <code>campaign-calendar</code>、<code>now-time-info</code>），
     2026-10-23 采样并脱敏。分析引擎与 Skill CLI 共用同一份实现。
   </p>
   <p>
     <b>本页未覆盖的能力</b>（在 WorkBuddy Skill 中可用）：
-    券的三路合并与门店核对、券的「真正可用时段」判定、每日巡检与昨日今日增量、
-    积分与券的联合决策、下单后自动复盘回校 earnRate。
-    本页专注演示<b>积分侧算法内核</b>。
+    门店专属券与门店促销核对、每日巡检与昨日今日增量、
+    用券排程（二分图最大匹配）、写操作确认网关与账本复盘。
+    本页演示的是<b>算法内核</b> —— 积分侧（01–03）与券侧（04–05）。
   </p>
   <p>
     本项目为<strong>非麦当劳官方产品</strong>，输出仅供参考，不构成财务或消费建议。
@@ -251,18 +270,39 @@
 
 <script type="module">
 import * as E from "./vendor/points-engine.mjs";
+import { auditCoupons } from "./vendor/analyze/coupon-audit.mjs";
+import { classify, parseCouponTerms } from "./vendor/analyze/coupon-model.mjs";
+import { computeShadowPrice, planAssetAllocation } from "./vendor/analyze/asset-plan.mjs";
+import { normalizeSnapshot } from "./vendor/collect/normalize.mjs";
 
 // 数据来源：真实 MCP 采集快照（脱敏）。直接读取 fixtures 而非硬编码，
 // 保证 Demo 与 Skill CLI 使用同一份数据，结论不会漂移。
-const SNAP = await (await fetch("./data/mcd-snapshot.json")).json();
+const RAW_SNAP = await (await fetch("./data/mcd-snapshot.json")).json();
+// 快照版本兼容层：早期快照用旧字段名（title/spuName/availablePoint），
+// 这里归一化到当前契约，让 Demo 与 Skill CLI 读到同一份数据。
+const SNAP = normalizeSnapshot(RAW_SNAP);
 
-const NOW = new Date(SNAP._generatedAt);
+const NOW = new Date(SNAP.generatedAt || RAW_SNAP._generatedAt);
 const $ = (id) => document.getElementById(id);
 // 整数分不显示小数位；有小数时保留最多 2 位（729.5 不能被截成 730）
 const fmt = (n) => {
   const v = Number(n);
   return Number.isInteger(v) ? String(v) : v.toLocaleString("zh-CN", { maximumFractionDigits: 2 });
 };
+
+// 给券补上类型判定与券面解析（与 Skill CLI 同一套逻辑）
+const enrichCoupon = (c) => {
+  const cls = classify(c);
+  const terms = parseCouponTerms(c);
+  return {
+    ...c,
+    type: cls.type,
+    typeConfident: cls.confident,
+    threshold: terms.threshold,
+    faceValue: c.value > 0 ? c.value : terms.faceValue,
+  };
+};
+const COUPONS = (SNAP.coupons || []).map(enrichCoupon);
 
 function render() {
   const budget = Number($("budget").value);
@@ -394,6 +434,12 @@ function render() {
   }
   $("planCard").innerHTML = planHTML;
 
+  // ── 券引擎：沉默成本 + 可用时段 ──
+  renderCouponSection();
+
+  // ── 积分影子价格 + 联合决策 ──
+  renderAssetSection();
+
   // 行动清单
   $("actions").innerHTML = actions.map(a => `
     <li>
@@ -409,6 +455,123 @@ function render() {
       单抽 ${lottery.drawPoint} 分，可抽 ${lottery.maxDraws} 次；同额积分直接兑换约值 ¥${lottery.redeemValue.toFixed(2)}。
       MCP 未提供奖品概率分布，故不给出期望值 —— 盈亏平衡点：抽中最高价值奖品概率需 &gt; 5.2% 才不劣于兑换。</div>`);
   }
+}
+
+// ── 券引擎区块 ──
+function renderCouponSection() {
+  const el = $("couponCard");
+  if (!COUPONS.length) {
+    el.innerHTML = `<p style="font-size:13.5px;color:var(--ink-3)">本次快照没有券数据。</p>`;
+    return;
+  }
+  const audit = auditCoupons(COUPONS, { now: NOW });
+  const TYPE_LABEL = {
+    bundle_price: "组合价", free_gift: "赠品", threshold: "满减",
+    item_price: "单品改价", percent: "单品折扣",
+  };
+
+  const rows = audit.slots.map(s => {
+    const c = COUPONS.find(x => x.name === s.name);
+    const usable = s.usableDays === null ? "—" : `${s.usableDays} 天`;
+    const unusable = s.unusableDays > 0 ? ` / ${s.unusableDays} 天用不了` : "";
+    const limits = [];
+    if (c?.dayWindow) limits.push(c.dayWindow);
+    if (c?.weekdayText) limits.push(c.weekdayText);
+    if (c?.channel?.length) {
+      limits.push(c.channel.map(x => (x === "pickup" ? "到店" : "外送")).join("/"));
+    }
+    return `
+      <tr>
+        <td>${c?.name || s.name}</td>
+        <td><span class="pill">${TYPE_LABEL[c?.type] || "—"}</span></td>
+        <td class="num">${c && c.value > 0 ? "¥" + c.value.toFixed(1) : "—"}</td>
+        <td class="num">${usable}${unusable}</td>
+        <td>${limits.join(" · ") || "—"}</td>
+      </tr>`;
+  }).join("");
+
+  const silent = audit.silent;
+  el.innerHTML = `
+    <div class="grid g4" style="margin-bottom:16px">
+      <div class="stat"><div class="k">手持券数</div><div class="v">${audit.total}</div></div>
+      <div class="stat"><div class="k">面值合计</div><div class="v">¥${audit.totalValue.toFixed(1)}</div></div>
+      <div class="stat ${silent.atRiskCount ? "warn" : ""}"><div class="k">过期风险</div><div class="v">${silent.atRiskCount}</div>
+        <div class="d">面值 ¥${silent.atRiskValue.toFixed(1)}</div></div>
+      <div class="stat ${audit.unclaimed.length ? "info" : ""}"><div class="k">可领未领</div><div class="v">${audit.unclaimed.length}</div>
+        <div class="d">零成本，先领</div></div>
+    </div>
+    <div style="font-size:13px;color:var(--ink-2);margin-bottom:10px">${audit.narrative}</div>
+    <table>
+      <thead><tr><th>券</th><th>类型</th><th class="num">面值</th><th class="num">真正能用</th><th>限制</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${
+      audit.unusable.length
+        ? `<div class="alert a" style="margin-top:14px"><b>当前用不了的券</b>（不是过期，是时机不对）——
+            ${audit.unusable.map(u => `${u.name}：${u.reason}`).join("；")}</div>`
+        : ""
+    }
+    ${
+      audit.duplicates.length
+        ? `<div class="alert a" style="margin-top:10px"><b>同款不同价</b> ——
+            ${audit.duplicates.map(d => `${d.name}：¥${d.dearest.value} 与 ¥${d.cheapest.value}，换便宜的省 ¥${d.waste}`).join("；")}</div>`
+        : ""
+    }`;
+}
+
+// ── 积分影子价格 + 联合决策区块 ──
+function renderAssetSection() {
+  const el = $("assetCard");
+  const budget = Number($("budget").value);
+  const account = { ...SNAP.account, availablePoint: budget };
+  const shadow = computeShadowPrice(SNAP.mall, account, { now: NOW });
+  const plan = planAssetAllocation(
+    { account, coupons: COUPONS, mall: SNAP.mall, lottery: SNAP.lottery, campaigns: SNAP.campaigns, orders: SNAP.orders },
+    { now: NOW }
+  );
+
+  if (!shadow.price) {
+    el.innerHTML = `<p style="font-size:13.5px;color:var(--ink-3)">当前没有在售的积分兑换标的，无法折算。</p>`;
+    return;
+  }
+
+  const val = plan.valuation;
+  const couponRows = val.coupons
+    .filter(c => c.value > 0)
+    .map(c => `
+      <tr>
+        <td>${c.name}</td>
+        <td class="num">¥${c.value.toFixed(1)}</td>
+        <td class="num">${c.pointsWorth ?? "—"}</td>
+        <td class="num">${c.shareOfBalance ?? "—"}%</td>
+      </tr>`)
+    .join("");
+
+  el.innerHTML = `
+    <div class="grid g4" style="margin-bottom:16px">
+      <div class="stat info"><div class="k">积分影子价格</div><div class="v">¥${shadow.price.toFixed(4)}</div>
+        <div class="d">每 1 积分值多少元</div></div>
+      <div class="stat"><div class="k">你的积分折算</div><div class="v">¥${val.points.yuanWorth}</div>
+        <div class="d">${val.points.available} 分</div></div>
+      <div class="stat"><div class="k">券面值折算</div><div class="v">${val.totalCouponPointsWorth}</div>
+        <div class="d">积分（面值 ¥${val.totalCouponValue.toFixed(1)}）</div></div>
+      <div class="stat warn"><div class="k">已过期损失</div><div class="v">¥${val.points.expiredYuan}</div>
+        <div class="d">${val.points.expired} 积分清零</div></div>
+    </div>
+    <div class="alert i" style="margin-bottom:14px">
+      <b>有了影子价格，积分和券就能直接比大小。</b>
+      ${shadow.note}${shadow.reachableOnly ? "" : "（当前余额够不到任何在售档位，此价格仅作参照）"}。
+    </div>
+    ${
+      couponRows
+        ? `<table><thead><tr><th>券</th><th class="num">面值</th><th class="num">等值积分</th><th class="num">占余额</th></tr></thead>
+           <tbody>${couponRows}</tbody></table>`
+        : `<p style="font-size:13.5px;color:var(--ink-3)">当前没有已领取的券。</p>`
+    }
+    <div style="font-size:13px;color:var(--ink-2);margin-top:14px"><strong>联合决策顺序</strong>（零成本 → 有成本）</div>
+    <ol class="actions" style="margin-top:8px">
+      ${plan.actions.map(a => `<li><div class="t">${a.title}</div><div class="r">${a.reason}</div></li>`).join("")}
+    </ol>`;
 }
 
 $("budget").addEventListener("input", render);

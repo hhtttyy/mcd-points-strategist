@@ -285,6 +285,16 @@ check("巡检报告列出三路券源", () => {
   const out = renderPatrol({ snapshot: currSnap, diff: diffSnapshots(prevSnap, currSnap, { now: NOW }) });
   return eq([out.includes("麦麦省可领"), out.includes("卡包持有")], [true, true]);
 });
+check("快照过期时提示数据新鲜度", () => {
+  const old = { ...currSnap, generatedAt: "2026-10-01T09:00:00Z" };
+  const out = renderDashboard({ snapshot: old, diff: diffSnapshots(prevSnap, old, { now: NOW }) }, { now: NOW });
+  return truthy(out.includes("快照采集于"));
+});
+check("快照新鲜时不提示", () => {
+  const fresh = { ...currSnap, generatedAt: NOW.toISOString() };
+  const out = renderDashboard({ snapshot: fresh, diff: diffSnapshots(prevSnap, fresh, { now: NOW }) }, { now: NOW });
+  return !out.includes("快照采集于");
+});
 
 // --------------------------------------------------------------------------
 console.log("\n【闭环 —— earnRate 回校影响决策】");

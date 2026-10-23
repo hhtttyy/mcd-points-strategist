@@ -119,7 +119,9 @@ scripts/
                 coupon-schedule.mjs              ← 点单机会预测、二分图最大匹配排程
                 diff.mjs                         ← 昨日今日增量（6 类变化）
                 asset-plan.mjs                   ← 积分影子价格、积分×券联合决策
-  app/         collect  explore  stores  patrol  dashboard  coupon-report  selftest-*
+                ledger.mjs                       ← 账本、earnRate 校准、复盘
+  app/         collect  explore  stores  patrol  dashboard  coupon-report
+                execute  render  selftest-*       ← 唯一允许 IO 的层
 ```
 
 **三条硬约束**：
@@ -200,7 +202,70 @@ shadowPrice = 可达最优兑换标的的面值 / 所需积分     (元/积分)
 
 ---
 
-## 四个核心算法
+## 完整闭环
+
+```
+┌─ 采集 ──────────┐   ┌─ 决策 ──────────┐   ┌─ 执行 ────────┐   ┌─ 复盘 ─────────┐
+│ patrol.mjs      │   │ asset-plan.mjs  │   │ execute.mjs   │   │ ledger.mjs     │
+│ 8 项独立容错    │──>│ 影子价格统一折算 │──>│ 强制确认网关  │──>│ earnRate 回校   │
+│ 写快照到 data/  │   │ 动作按成本排序   │   │ 执行后自动记账 │   │ 下次更准 ↑     │
+└─────────────────┘   └─────────────────┘   └───────────────┘   └────────────────┘
+        ↑                                                            │
+        └────────────────── 明日巡检 diff 新变化 ←───────────────────┘
+```
+
+**闭环的每一环都有实测支撑**：
+
+| 环 | 实现 | 关键点 |
+|---|---|---|
+| 采集 | `app/patrol.mjs` | 8 项独立容错，单项失败不拖垮全局；写操作默认不执行 |
+| 决策 | `analyze/asset-plan.mjs` | 积分影子价格把两种资源拉到同一标尺 |
+| 执行 | `app/execute.mjs` | 默认只打印计划，`--confirm` 才执行；执行后记账 |
+| 复盘 | `analyze/ledger.mjs` | earnRate 从账户增量反推，回喂决策 |
+
+### earnRate 回校 —— 让补差金额越来越准
+
+`order-list` **不返回每单获得的积分**（实测字段里没有 `earnPoint`），
+所以只能从账户积分增量反推：
+
+```
+earnRate = (本次累计积分 - 上次累计积分) / 期间有效消费金额
+```
+
+有效消费排除**整单退款**与 **0 元订单**（券核销/积分兑换不是新消费）；
+部分退款仍全额计入（接口不给退款额，只能如实说明）。
+
+| earnRate | 凑到 50 分门槛要消费 |
+|---|---|
+| 1.0（默认，未校准） | ¥16.5 |
+| 1.3（实测） | ¥12.69 |
+| 0.8（实测偏低） | ¥20.63 |
+
+**没有上一次快照时不算** —— 把缺失当 0 会得出「581 分 / 59.4 元 = 9.79 积分/元」
+这种荒谬值。此时明确说「跑两次巡检后即可校准」，不编造数字。
+
+### 写操作确认网关
+
+```bash
+node scripts/app/execute.mjs claim              # 只看计划
+node scripts/app/execute.mjs claim --confirm     # 确认执行
+node scripts/app/execute.mjs redeem --sku 2001   # 兑换（先看计划）
+node scripts/app/execute.mjs draw --confirm      # 抽奖
+node scripts/app/execute.mjs ledger              # 看账本
+node scripts/app/execute.mjs review              # 复盘
+```
+
+执行前必过三道校验：
+
+```
+✗ 积分兑换 无法执行：「21.9元巨无霸可乐组合」已于 2026-10-01 下架，不要为它攒分
+✗ 积分兑换 无法执行：可用积分 10 不足，需要 50 分（差 40）
+✗ 积分抽奖 无法执行：暂不可参与：资源不足
+```
+
+完整规则见 [`references/ledger-algorithm.md`](references/ledger-algorithm.md)。
+
+---
 
 | 算法 | 解决什么 | 实现 |
 |---|---|---|
