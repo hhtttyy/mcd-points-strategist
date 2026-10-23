@@ -1,0 +1,247 @@
+# 麦当劳 MCP 实测坑位
+
+> 本文件记录**官方文档未说明、但跑通链路必需**的实测契约。
+> 每一条都来自真实调用，不是推测。
+>
+> 官方文档只列了 33 个工具名，**没说清楚每个工具实际返回什么** ——
+> 这是本项目最大的隐性成本。
+
+---
+
+## 一、返回形态：多数工具不是 JSON
+
+| 形态 | 工具 | 说明 |
+|---|---|---|
+| `markdown-wrapper` | 绝大多数 | 返回 Markdown 文本，**真 JSON 藏在 `## Original Response` 之后** |
+| `markdown` | `campaign-calendar`、`available-coupons`、`query-my-coupons` | 纯 Markdown，需自行解析 |
+| `text-table` | `list-nutrition-foods` | 逗号分隔文本表格，**不是 JSON** |
+| `empty-cn` | 多数查询工具 | 无数据时返回中文文案（如「暂无可用优惠券」），**不是空数组** |
+| `json` | `order-list`、`query-my-account`、`mall-points-products` | 标准 JSON |
+
+**解析策略**（见 `scripts/lib/mcp-client.mjs` 的 `unwrap`）：
+
+```js
+if (text.includes("## Original Response")) → 取其后内容尝试 JSON.parse
+else → 尝试整体 JSON.parse
+else → 原样返回文本，交给 collect 层按 Markdown 解析
+```
+
+**踩坑后果**：直接 `JSON.parse` 整个响应 → 抛异常 → 采集整体失败。
+
+---
+
+## 二、单位陷阱：两个接口方向相反 ⚠️
+
+这是本项目**最容易造成静默错误**的坑。
+
+| 接口 | 字段 | 单位 | 实测值 |
+|---|---|---|---|
+| `calculate-price` | `price` / `discount` / `productPrice` | **分** | `1350` = 13.5 元 |
+| `mall-*` | `productPrice` / `subtotal` | **分** | `1350` = 13.5 元 |
+| `order-list` | `realTotalAmount` | **元** ⚠️ | `"36.5"` = 36.5 元 |
+| `mall-order-detail` | `paymentAmount` | **分** | `1350` = 13.5 元 |
+
+**如果把 `order-list` 的 36.5 当分换算 → 得到 0.37 元**，客单价与消费画像会**缩小 100 倍**，而程序不会报错。
+
+> 判别方法：值是整数且带两位小数（`"36.5"`）→ 元；值是整数且无小数（`1350`）→ 分。
+
+**规则**：金额换算只允许发生在 `scripts/collect/parse.mjs`，且每个字段都要明确标注来源接口。
+
+---
+
+## 三、必传参数：文档没写的四个
+
+| 工具 | 必传参数 | 不传会怎样 |
+|---|---|---|
+| `campaign-calendar` | `specifiedDate` | 返回异常或空 |
+| `query-nearby-stores` | `beType` + `searchType` | 返回异常 |
+| `query-meals` | `storeCode` + `orderType` + `beType` | 返回异常 |
+| `query-store-coupons` | `storeCode` + `orderType` + `beType` | 返回异常 |
+| `query-promotions` | `storeCode` + `orderType` + `beType` | 返回异常 |
+| `calculate-price` | `storeCode` + `orderType` + `beType` + 商品列表 | 返回异常 |
+
+---
+
+## 四、`query-promotions` 不在官方文档里 ⚠️
+
+**33 个文档工具之外，实测还有一个可用的读工具**：
+
+```
+query-promotions   参数：storeCode, orderType, beType
+                   实测返回：12 条门店级促销
+```
+
+它是**「某门店今日有什么优惠」的主力数据源** —— 官方文档里的 `campaign-calendar` 是**全国活动日历**（不区分门店），而 `query-promotions` 才是门店级的。
+
+> 之所以能发现：mcd-wrapped 项目的探测器逐个跑通了所有只读工具。
+> **这就是本项目坚持内置探测器（`scripts/app/explore.mjs`）的理由** ——
+> 文档会过时，实测不会。
+
+---
+
+## 五、券的三个来源，口径各不相同
+
+必须**三路都拉**，缺一路就会漏钱或误判。
+
+| 工具 | 口径 | 关键事实 |
+|---|---|---|
+| `available-coupons` | **账户全域**，不接受任何参数 | 麦麦省的可领券，**不限于任何门店** |
+| `query-my-coupons` | 账户级，卡包持有 | **唯一能拿到券有效期与限制的来源** |
+| `query-store-coupons` | 门店级，该店当前可用 | 口径最窄 |
+
+**实测差距**：某用户卡包持有 9 张，同一时刻该门店只认 **2 张**。
+若只按门店口径算沉默成本，会把 7 张即将过期的早餐券整个漏掉。
+
+### 推论：先领券，再核实门店
+
+`available-coupons` 是**账户全域**的 —— 领券这个动作**与门店无关**。
+所以正确的顺序是：
+
+```
+① 先 auto-bind-coupons 领券（零成本零风险，与门店无关）
+② 再定位门店，query-store-coupons + query-promotions 核对该店细节
+```
+
+不需要为了领券先跑一趟门店查询。
+
+---
+
+## 六、券的「还剩几天」≠「有几天能用」
+
+`query-my-coupons` 的有效期原文形如：
+
+```
+2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59
+2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29
+```
+
+第一张日历跨度 5 天，但标了「周一~周五」，每天还只有 10:30 之后可用；
+第二张是**单日券** —— 只有当天早上能用。
+
+**因此券的可用性必须拆成三个维度**：
+1. **自然天数**（`daysLeft`）—— 距失效还有几天
+2. **可用时段数**（`usableSlots`）—— 真正还能用的次数
+3. **此刻是否可用**（`isUsableNow`）—— 考虑 `validFrom`（早餐券可能明天才生效）
+
+> 未领取的券拿不到这些字段。对「可领取」的券只能给出「未知」，
+> **不得说成「无期限」**，也不得编造剩余天数。
+
+---
+
+## 七、积分商城的两个陷阱
+
+### 7.1 `price` 字段恒为 0，真面值在 `spuName` 前缀
+
+```
+spuName: "18.8元2份麦辣鸡翅"   point: 200   price: 0   → 面值 18.8
+spuName: "6.9元可乐麦炫酷"      point: 50    price: 0   → 面值 6.9
+spuName: "罗技键鼠套装"          point: 6666  price: 0   → 无法解析（实物类）
+```
+
+**若误用 `price` 字段，全部积分类标的密度均为 0，排序结果完全失真。**
+
+解析优先级：`spuName` 正则 `^([\d.]+)\s*元` → `price` 字段 → 0（未知）。
+
+### 7.2 `status` 不能单独作为「可兑换」依据
+
+实测 24 个积分类商品里 **15 个兑换截止日已过，但接口状态仍报「上架」**。
+
+只看 `status` 会告诉用户「你有 24 个可以换」，实际只有 9 个。
+**必须以 `downTime`（兑换截止日）为准。**
+
+---
+
+## 八、积分字段是字符串，且可以是小数
+
+```
+availablePoint: "376.3"    accumulativePoint: "581.3"    expiredPoint: "17"
+```
+
+**积分不是整数** —— 不能用 `parseInt`，必须用 `parseFloat` 语义。
+`"376.3"` 若被截断成 `376`，误差虽小但会让临期判断失准。
+
+---
+
+## 九、活动文案里的价格不可用于计算
+
+`campaign-calendar` 的活动内容介绍里全是价格：
+
+```
+超值𝟗.𝟗元早餐两件套陪你开工啦
+凭券两件套只要9.9元
+麦咖啡13.9r浓浓黑巧来啦！
+```
+
+这些是**营销文案**，无法与门店菜单核实。`mall-product-detail` 的 `note` 字段
+更是接口自己明确要求「严禁从 note 提取任何数值用于价格计算」。
+
+**规则**：活动日历只取**日期与标题**，用于做时间线与提醒。
+**绝不把「有活动」等同于「更便宜」** —— 那是两回事。
+
+---
+
+## 十、抽奖不暴露概率分布
+
+`query-lottery-info` 返回奖池、奖品列表、消耗规则，但**不返回中奖概率**。
+
+任何点估计期望值都是编造。本项目的做法是给**可证伪的盈亏平衡概率**：
+
+```
+设单抽消耗 d 积分，同额积分直接兑换可得 redeemValue = d × bestDensity
+设奖品价值区间 [worst, best]，抽中最高价值的概率为 p
+E[抽奖] = p·best + (1-p)·worst
+令 E[抽奖] = redeemValue 解出 p* = (redeemValue - worst) / (best - worst)
+```
+
+`p* ≤ 0` → 抽奖的最低价值已不低于兑换，直接抽；
+否则 `p*` 就是盈亏平衡点 —— 概率未知时结论是「不确定」，不是伪造的期望值。
+
+**是否可参与以 `drawDecision.resourceEligible` 为准**，
+**不要从 `availableTimes` 推断**。
+
+---
+
+## 十一、写操作工具清单（探测器一律不调用）
+
+| 工具 | 副作用 |
+|---|---|
+| `auto-bind-coupons` | 一键领取全部麦麦省券（改变账户状态） |
+| `create-order` | 创建点餐订单（**可能真实扣款**） |
+| `cancel-order` | 取消订单 |
+| `mall-create-order` | 积分兑换下单（**扣积分**） |
+| `draw-lottery` | 消耗积分抽奖 |
+| `party-order-create` | 主题活动下单 |
+| `delivery-create-address` | 新增配送地址 |
+
+`scripts/lib/mcp-client.mjs` 的 `WRITE_TOOLS` 集合是唯一白名单，
+`callTool` 默认拦截，**必须显式 `{ allowWrite: true }` 才能调用**。
+
+### 重试策略的差异
+
+- **429**（限流，每分钟 600 次）→ 指数退避重试，尊重 `Retry-After`
+- **5xx** → **不重试**。下单类接口重试可能造成**重复下单**。
+- **401** → 立即失败，提示去 open.mcd.cn 重新激活 Token
+
+---
+
+## 十二、Token 与安全边界
+
+- Token 从 `MCD_MCP_TOKEN` 环境变量或项目根 `.env` 读取，**永不写入日志**
+- `.env` 与 `data/` 必须在 `.gitignore` 里 —— `order-list` 的真实数据含
+  门店名、金额、消费规律，是**个人消费画像**
+- MCP 无「积分怎么获得」接口 —— 只能查余额、查商城、抽奖。
+  **攒积分做不了**，这是接口供给的空白，不是选题失误
+
+---
+
+## 附：探测器的用法
+
+```bash
+export MCD_MCP_TOKEN=xxx
+node scripts/app/explore.mjs                    # 全量探测
+node scripts/app/explore.mjs --store 1990622    # 带上门店串联
+node scripts/app/explore.mjs --no-arg-only      # 只探测无参工具
+```
+
+输出 `references/mcp-explorer.md`（人读）与 `references/mcp-explorer.json`（机读）。
+**每次 MCP 升级后都应重跑**，因为文档会过时而实测不会。

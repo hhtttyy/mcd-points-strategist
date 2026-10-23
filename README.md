@@ -8,6 +8,10 @@
 **🎮 在线试算（无需登录）**：<https://hhtttyy.github.io/mcd-points-strategist/>
 拖动滑块模拟你的积分余额，立刻看清结论。
 
+> 💡 **这是离线演示版**，用脱敏快照驱动，展示的是**算法内核**。
+> 实时看板与闭环在 WorkBuddy 里 —— 把本目录装成 Skill 后直接对话使用即可。
+> 两端跑的是**同一份** `points-engine.mjs`，结论永远一致。
+
 麦当劳程序员创意开发大赛参赛作品 · 非麦当劳官方产品
 
 ---
@@ -102,6 +106,32 @@
 
 ---
 
+## 架构
+
+```
+scripts/
+  lib/         mcp-client.mjs  schema.mjs        ← 协议与数据契约，无业务
+  collect/     parse.mjs  collectors.mjs        ← 纯函数：原始响应 → 契约对象
+  analyze/                                          ← 纯函数：契约对象 → 结论
+  app/         collect  explore  stores  selftest-collect  ← 唯一允许 IO 的层
+```
+
+**三条硬约束**：
+
+1. **纯函数优先** —— `collect/` 与 `analyze/` 里的函数是 `(输入JSON) => (输出JSON)`，
+   不碰 IO、不读环境变量、不打印
+2. **契约先行** —— 跨模块传递的数据结构由 `lib/schema.mjs` 统一定义与校验，
+   模块之间不互相 import 内部实现
+3. **IO 只在 app 层** —— 只有 `app/` 下的脚本能发起 MCP 调用、读写文件
+
+依赖方向严格单向：`app → analyze → collect → lib`。反向依赖即违规。
+
+**为什么这么分层**：算法层要能同时跑在 Node CLI 和浏览器 Demo 里（双端一致），
+所以它必须保持纯函数；采集层要能用**脱敏的历史响应**做离线回归测试，
+所以它也不能有 IO。两层分开，各自可测。
+
+---
+
 ## 四个核心算法
 
 | 算法 | 解决什么 | 实现 |
@@ -140,22 +170,114 @@
 3. 启用 `mcd-mcp` 连接器，然后把本目录（含 `SKILL.md`）安装为 Skill
 4. 对话中说「我的积分怎么用划算」，或直接「跑一下积分分析」
 
+> Token 放在 WorkBuddy 的连接器配置里，**不进入本项目的任何代码**。
+> 仓库内的脚本只在命令行直跑时才需要 `MCD_MCP_TOKEN`。
+
 ### 作为命令行工具运行
 
 ```bash
-# 拉取实时数据并脱敏
-MCP_TOKEN=<your_token> node scripts/fetch-mcd-data.mjs
+# 探测 MCP 能力（首次建议先跑这个，输出实测契约）
+MCD_MCP_TOKEN=<your_token> node scripts/app/explore.mjs
+
+# 采集资产快照
+MCD_MCP_TOKEN=<your_token> node scripts/app/collect.mjs
+
+# 设置常用门店（券的门店核对、门店促销都依赖它）
+MCD_MCP_TOKEN=<your_token> node scripts/app/stores.mjs list
+MCD_MCP_TOKEN=<your_token> node scripts/app/stores.mjs pick <storeCode>
 
 # 分析
 node scripts/points-strategist.mjs              # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 模拟积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
 
-# 算法自检（39 项断言）
-node scripts/selftest.mjs
+# 自检
+node scripts/selftest.mjs            # 算法层 39 项
+node scripts/app/selftest-collect.mjs  # 采集层 65 项
 ```
 
 **零依赖**，只需 Node 18+（内置 fetch）。
+
+---
+
+## 你的数据存在哪里
+
+本项目会读取你的真实麦当劳数据（积分、券、订单、门店）。这些数据**只存在你自己的机器上**。
+
+| 路径 | 内容 | 是否进版本库 |
+|---|---|---|
+| `data/snapshot.json` | 资产快照（积分、券、活动、订单、门店） | ❌ 否，已在 `.gitignore` |
+| `data/profile.json` | 你的常用门店等偏好 | ❌ 否，已在 `.gitignore` |
+| `data/ledger.jsonl` | 决策与执行账本（后续阶段） | ❌ 否，已在 `.gitignore` |
+| `.env` | 你的 MCP Token | ❌ 否，已在 `.gitignore` |
+| `fixtures/reference/` | **脱敏后的**参考响应，用于离线回归测试 | ✅ 是 |
+
+**为什么 `data/` 整个目录都不进版本库**：
+
+`order-list` 返回的是你的**真实消费记录** —— 门店名、下单时间、金额、单品组合。
+这些拼起来是一份完整的**个人消费画像**。公开仓库里放这个既不安全也不体面，
+所以整个 `data/` 目录都被排除。
+
+`fixtures/reference/` 里的文件来自其他参赛项目的**脱敏**录制，
+只保留了解析逻辑需要的结构，不含可识别信息。
+
+**删除你的全部本地数据**：
+
+```bash
+rm -rf data/        # 快照、账本、门店偏好
+rm .env             # Token
+```
+
+---
+
+## 券的三个来源，和「先领券再核实门店」
+
+### 券必须三路都查
+
+| 工具 | 口径 | 关键事实 |
+|---|---|---|
+| `available-coupons` | **账户全域**，不接受任何参数 | 麦麦省可领券，**不限于任何门店** |
+| `query-my-coupons` | 账户级，卡包持有 | **唯一能拿到券有效期与限制的来源** |
+| `query-store-coupons` | 门店级，该店当前可用 | 口径最窄 |
+
+实测差距：某用户卡包持有 **9 张**，同一时刻该门店只认 **2 张**。
+只按门店口径算沉默成本，会把 7 张即将过期的早餐券整个漏掉。
+
+### 所以：先领券，再核对门店
+
+`available-coupons` 是账户全域的 —— **领券这个动作与门店无关**。
+所以日常流程是：
+
+```
+① 领券（零成本零风险，不需要门店）      auto-bind-coupons
+② 定位你的常用门店                       query-nearby-stores → storeCode
+③ 核对该店细节                          query-store-coupons + query-promotions
+```
+
+第 ③ 步拿到的 `query-promotions` 是**门店级促销**（实测 12 条），
+它是「这家店今天有什么优惠」的主力数据源 ——
+**这个工具不在官方文档的 33 个工具里**，是本项目的探测器实测发现的。
+
+日常对话里用一句话就能完成：
+
+> 「六道口店今天有什么优惠」
+
+Skill 会自动：领券 → 定位门店 → 拉该店券与促销 → 结合你的积分给出方案。
+
+### 「还剩 4 天」≠「有 4 天能用」
+
+券的有效期原文长这样：
+
+```
+2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59   ← 多日券
+2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29                  ← 单日券
+```
+
+第一张日历跨度 5 天，但只有周一~周五、每天 10:30 之后能用；
+第二张**只有当天早上**能用。
+
+所以本项目把券的可用性拆成三个维度：**自然天数** / **真正还能用的时段数** /
+**此刻是否可用**（早餐券可能明天才生效）。
 
 ---
 

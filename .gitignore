@@ -2,6 +2,11 @@ node_modules/
 .env
 .DS_Store
 *.log
+
 # 严禁提交真实 Token
 mcp-config.json
 snapshot.local.json
+
+# 个人数据目录 —— 包含真实订单、门店、消费习惯，属于个人消费画像
+# 详见 README「你的数据存在哪里」一节
+data/

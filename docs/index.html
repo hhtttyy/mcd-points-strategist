@@ -40,6 +40,17 @@
   h1 { font-size: 30px; font-weight: 600; margin: 0 0 12px; letter-spacing: -.01em; }
   .lede { font-size: 16px; color: var(--ink-2); max-width: 660px; margin: 0; }
 
+  .notice {
+    margin-top: 18px; max-width: 700px; font-size: 13.5px; line-height: 1.7;
+    color: var(--ink-2); background: var(--blue-bg);
+    border: 1px solid rgba(24,95,165,.22); border-radius: var(--r); padding: 14px 16px;
+  }
+  .notice b { color: var(--blue); font-weight: 600; }
+  .notice code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px; background: rgba(255,255,255,.7); padding: 1px 5px; border-radius: 4px;
+  }
+
   h2 { font-size: 19px; font-weight: 600; margin: 44px 0 6px; }
   h2 .num { color: var(--ink-3); font-weight: 400; margin-right: 10px; font-variant-numeric: tabular-nums; }
   .sub { color: var(--ink-2); font-size: 14px; margin: 0 0 18px; }
@@ -147,6 +158,12 @@
     拖动滑块模拟你的积分余额，立刻看清：积分衰减了多少、兑换档位哪个真划算、
     有没有在为早已结束的活动白攒分、以及最优兑换组合怎么选。
   </p>
+  <div class="notice">
+    <b>这是离线演示版</b>，用脱敏快照驱动，展示的是<b>算法内核</b>。<br>
+    实时看板与「每天检测 → 合理花出 → 变动自动更新」的完整闭环在 WorkBuddy 里 ——
+    把本仓库装成 Skill 后直接对话使用即可，脚本会实时拉取你的真实数据。
+    本页与 Skill 跑的是<b>同一份</b> <code>points-engine.mjs</code>，结论永远一致。
+  </div>
 </header>
 
 <h2><span class="num">01</span>你的积分健康度</h2>
@@ -214,6 +231,12 @@
     数据来源：麦当劳中国 MCP Server（<code>query-my-account</code>、<code>mall-points-products</code>、
     <code>query-lottery-info</code>、<code>available-coupons</code>、<code>now-time-info</code>），
     2026-10-23 采样并脱敏。分析引擎与 Skill CLI 共用同一份实现。
+  </p>
+  <p>
+    <b>本页未覆盖的能力</b>（在 WorkBuddy Skill 中可用）：
+    券的三路合并与门店核对、券的「真正可用时段」判定、每日巡检与昨日今日增量、
+    积分与券的联合决策、下单后自动复盘回校 earnRate。
+    本页专注演示<b>积分侧算法内核</b>。
   </p>
   <p>
     本项目为<strong>非麦当劳官方产品</strong>，输出仅供参考，不构成财务或消费建议。
