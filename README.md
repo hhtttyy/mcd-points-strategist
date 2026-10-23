@@ -112,8 +112,12 @@
 scripts/
   lib/         mcp-client.mjs  schema.mjs        ← 协议与数据契约，无业务
   collect/     parse.mjs  collectors.mjs        ← 纯函数：原始响应 → 契约对象
-  analyze/                                          ← 纯函数：契约对象 → 结论
-  app/         collect  explore  stores  selftest-collect  ← 唯一允许 IO 的层
+                normalize.mjs                    ← 快照版本兼容层
+  analyze/     coupon-model.mjs                 ← 5 类券建模、叠加互斥、可用时段
+                coupon-stack.mjs                 ← 组合计价、最优券组合、凑单陷阱
+                coupon-audit.mjs                 ← 沉默成本、同款不同价、券体检
+                coupon-schedule.mjs              ← 点单机会预测、二分图最大匹配排程
+  app/         collect  explore  stores  coupon-report  selftest-*  ← 唯一允许 IO 的层
 ```
 
 **三条硬约束**：
@@ -145,6 +149,76 @@ scripts/
 本项目**拒绝编造期望值**，改为给出可独立验证的盈亏平衡点。
 
 完整公式与推导见 [`references/algorithm.md`](references/algorithm.md)。
+
+---
+
+## 券引擎 —— 让「领得准」有算法支撑
+
+券名是自然语言（`中薯条买一送一` / `王牌小食拼` / `大脆鸡扒堡早餐两件套`），
+不建模就只能做字符串匹配。所以券被统一抽象成**可计算的 5 类**。
+
+### 5 类券与判定顺序
+
+| 顺序 | 判据 | 类型 |
+|---:|---|---|
+| 1 | 买一送一（同一商品打包） | `bundle_price` |
+| 2 | 买A送B / 赠品 | `free_gift` |
+| 3 | 满X减Y / 立减 | `threshold` |
+| 4 | 1+1 / 随心配 / 任选 | `bundle_price` |
+| 5 | 单品 X 元 | `item_price` |
+| 6 | 单品 X 折 | `percent` |
+| — | 认不出来 | `threshold` + 标注不确定 |
+
+**关键区分**：「中薯条买一送一」是组合价（同商品打包），
+「买汉堡送香芋派」才是赠品。判错会直接算错价。
+
+### 保守叠加策略
+
+```
+拿不准 stackable → 一律视为互斥
+两张满减/赠品券 → 可叠加
+作用于同一商品 → 互斥
+```
+
+**算出的价格必须 ≤ 用户实际支付价。宁可少报优惠，也不给「假便宜」。**
+
+### 「还剩 4 天」≠「有 4 天能用」
+
+券的有效期原文长这样：
+
+```
+2026-10-12 10:30-2026-10-16 23:59 周一、二、三、四、五 10:30-23:59   ← 周末完全用不了
+2026-10-15 05:00-2026-10-15 10:29 周四 05:00-10:29                  ← 单日券
+```
+
+所以券的可用性拆成三个维度：**自然天数** / **真正还能用的天数** / **此刻是否可用**
+（早餐券可能明天才生效）。
+
+### 沉默成本
+
+```
+你手里有 13 张券，其中 5 张将在 7 天内过期
+若未使用，将白白损失 ¥47.5
+```
+
+已过期 / 今天到期 / N 天内到期**三类分开统计** —— 紧迫度完全不同。
+面值算不出来的券也会单独说明，否则「面值 X 元」会被读成「全部损失只有 X 元」。
+
+### 用券排程（二分图最大匹配）★ 本项目独有
+
+把手里的券**逐张排到未来每一次点单**上 ——「第几单、哪天、用哪张、净价值多少」。
+
+问题建模为**二分图最大匹配**：券 × 点单机会，边 = 那次点单上能不能用这券，
+目标是**最大化排得出去的券数**。用增广路算法求解。
+
+**为什么不是「谁先过期先用谁」**：朴素做法会把最灵活的券浪费在最早的一单上。
+增广路在匹配失败时会**重新调整已有分配**，把「可用机会最少的券」
+留给「可用机会最少的订单」。
+
+排不出去的券会说明原因：「限定周一~周五，未来几次点餐都赶不上」
+「可用时段 05:00-10:29，与点餐时间不匹配」。
+
+完整公式见 [`references/coupon-algorithm.md`](references/coupon-algorithm.md)。
 
 ---
 
@@ -190,10 +264,12 @@ MCD_MCP_TOKEN=<your_token> node scripts/app/stores.mjs pick <storeCode>
 node scripts/points-strategist.mjs              # 完整报告
 node scripts/points-strategist.mjs --budget 800  # 模拟积分余额
 node scripts/points-strategist.mjs --json       # 结构化输出
+node scripts/app/coupon-report.mjs               # 券体检 + 沉默成本 + 用券排程
 
 # 自检
-node scripts/selftest.mjs            # 算法层 39 项
-node scripts/app/selftest-collect.mjs  # 采集层 65 项
+node scripts/selftest.mjs               # 算法层 39 项
+node scripts/app/selftest-collect.mjs   # 采集层 65 项
+node scripts/app/selftest-coupon.mjs     # 券引擎 69 项
 ```
 
 **零依赖**，只需 Node 18+（内置 fetch）。
