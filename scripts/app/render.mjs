@@ -28,8 +28,14 @@ import { analyzePromotionRules } from "../analyze/promotion-rules.mjs";
  * @param {string} [input.channel] 当前就餐方式
  * @param {number} [input.hour]     当前小时
  */
-export function renderDashboard(input = {}, opts = {}) {
-  const snap = input.snapshot || {};
+/** 保留 2 位小数的四舍五入。 */
+function round2(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
+}
+
+export function renderDashboard(input = {}, opts = {}) {  const snap = input.snapshot || {};
   const diff = input.diff || {};
   const now = opts.now ? new Date(opts.now) : new Date();
   const channel = input.channel || opts.channel || null;
@@ -45,12 +51,31 @@ export function renderDashboard(input = {}, opts = {}) {
     diff.newOrders || []
   );
 
+  // 券的实测优惠额（calculate-price 口径）—— 挂到券对象上，
+  // 让决策层能区分「已测算」与「无法推算」
+  const measuredMap = new Map(
+    (input.couponValues?.items || []).filter((x) => x.known).map((x) => [x.id, x])
+  );
+  const couponsWithMeasured = coupons.map((c) => {
+    const m = measuredMap.get(c.id);
+    return m
+      ? { ...c, measuredSaving: m.saving, measuredOriginal: m.originalYuan, measuredPayable: m.payableYuan }
+      : c;
+  });
+
   const plan = planAssetAllocation(
-    { account: snap.account, coupons, mall: snap.mall, lottery: snap.lottery, campaigns: snap.campaigns, orders: snap.orders },
+    {
+      account: snap.account,
+      coupons: couponsWithMeasured,
+      mall: snap.mall,
+      lottery: snap.lottery,
+      campaigns: snap.campaigns,
+      orders: snap.orders,
+    },
     { now, channel, hour, earnRate: calibration.earnRate }
   );
   const forecast = forecastOrders(snap.orders || [], { now });
-  const schedule = scheduleCoupons(coupons, forecast.orders, { now });
+  const schedule = scheduleCoupons(couponsWithMeasured, forecast.orders, { now });
 
   const L = [];
   const today = now.toISOString().slice(0, 10);
@@ -121,21 +146,21 @@ export function renderDashboard(input = {}, opts = {}) {
 
   // ══ 券包 ══
   if (audit.total) {
-    // ⚠️ 只有能确证的优惠额才计入金额合计。
-    //    coupon_price 语义的券（用券价格 = 到手价）不能算作「省了 X 元」。
+    // ⚠️ 金额口径：只有能确证的优惠额才计入。
+    //    coupon_price 语义的券（用券价格 = 到手价）本身不能算作「省了 X 元」，
     //    但如果已经用 calculate-price 测算过（input.couponValues），
     //    就可以用测算出的真实优惠额 —— 这比「无法推算」有用得多。
     const measured = new Map(
-      (input.couponValues?.items || [])
-        .filter((x) => x.known)
-        .map((x) => [x.id, x])
+      (input.couponValues?.items || []).filter((x) => x.known).map((x) => [x.id, x])
     );
-    const measuredTotal = [...measured.values()].reduce((s, x) => s + (x.saving || 0), 0);
+    const measuredTotal = round2(
+      [...measured.values()].reduce((s, x) => s + (x.saving || 0), 0)
+    );
     const measuredCount = measured.size;
 
     const moneyNote =
       measuredCount > 0
-        ? ` · 已测算 ${measuredCount} 张实省 ¥${Math.round(measuredTotal * 100) / 100}`
+        ? ` · 已测算 ${measuredCount} 张实省 ¥${measuredTotal}`
         : audit.silent.priceOnlyCount
           ? ` · ${audit.silent.priceOnlyCount} 张仅显示到手价（未计入金额）`
           : "";
@@ -154,10 +179,17 @@ export function renderDashboard(input = {}, opts = {}) {
           : item.value > 0
             ? `到手价 ¥${item.value}`
             : "面值未知";
-      if (item.daysLeft !== undefined && item.daysLeft >= 0 && item.daysLeft <= 7) {
-        L.push(`　 ⏰ ${item.name} ${priceText} 剩 ${item.daysLeft} 天${tag ? ` · ${tag}` : ""}`);
+      // ⚠️ 标记要区分「快过期」与「还没生效」——
+      //    两者都用 ⏰ 会让人以为 10-26 生效的券也快过期了。
+      //    实测（2026-10-23）：卡包里同时有「1 天后过期」和「3 天后才生效」两类券。
+      const notYet = /尚未生效/.test(item.unusableReason || item.reason || "");
+      const icon = notYet ? "🕐" : "⏰";
+      if (notYet) {
+        L.push(`　 ${icon} ${item.name} ${priceText} · ${item.unusableReason || item.reason}`);
+      } else if (item.daysLeft !== undefined && item.daysLeft >= 0 && item.daysLeft <= 7) {
+        L.push(`　 ${icon} ${item.name} ${priceText} 剩 ${item.daysLeft} 天${tag ? ` · ${tag}` : ""}`);
       } else {
-        L.push(`　 ⏰ ${item.name} ${priceText} · ${item.reason}`);
+        L.push(`　 ${icon} ${item.name} ${priceText} · ${item.reason}`);
       }
     }
     if (audit.unclaimed.length) {

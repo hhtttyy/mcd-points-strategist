@@ -172,7 +172,9 @@ export function collectMyCoupons(raw, { now = new Date() } = {}) {
   return rows.map((r, i) =>
     decorateCoupon(
       {
-        id: r.id || `my-${i}-${r.name}`,
+        // ⚠️ id 必须包含**到期时刻**，否则同名的不同批次券会被合并成一张。
+        //    （真实结构里 id 来自 couponId，天然唯一；这里是无 id 时的回退路径。）
+        id: r.id || `my-${r.name}-${r.expireAt || i}`,
         code: r.code || "",
         name: r.name,
         value: num(r.value),
@@ -285,8 +287,27 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
   const byKey = new Map();
 
   for (const c of all) {
-    // 键：券名 + 归一化到期时刻（无到期时刻的券按名称独立计数）
-    const key = `${c.name}|${c.expireAt || "no-expire"}`;
+    // ⚠️ 合并键：**优先用 couponId**，它是券的唯一标识。
+    //
+    // 实测（2026-10-23 领券后，六道口店）：
+    //   卡包 `my`     用 `id`，        门店 `store` 用 `couponId`，**值一致**
+    //   同一张券两路的到期日可能不同：
+    //     卡包 tradeStartDateTime/tradeEndDateTime = "2026-10-19 10:30:00-2026-10-23 23:59:59"
+    //     门店 tradeDateTime（区间）               = "2026-10-19 10:30:00-2026-10-23 23:59:59"
+    //   用「券名+到期日」做键 → 同一张券被算成两张。
+    //   用 couponId 做键 → 正确合并。
+    //
+    // ⚠️ 但**同名不等于同一张券**：
+    //   领券后卡包有 5 张，其中「11.9元麦辣鸡腿堡」有两张
+    //   （couponId A2552803… 到期 10-23 / couponId B34E5EC6… 到期 10-30）
+    //   —— 它们是**不同批次**的券，各有各的 couponId，必须分开。
+    //   所以键用 couponId 正好同时满足「同券合并」与「异券分开」。
+    //
+    // 无 couponId 时（可领券接口不返回）回退到「券名+到期日」。
+    const key = c.id || c.code
+      ? `id:${c.id || c.code}`
+      : `name:${c.name}|${c.expireAt || "no-expire"}`;
+
     const prev = byKey.get(key);
     if (!prev) {
       byKey.set(key, { ...c });
@@ -356,7 +377,52 @@ export function mergeCoupons(sources, { now = new Date() } = {}) {
     byKey.set(key, merged);
   }
 
-  return [...byKey.values()].map((c) => decorateCoupon(c, { now }));
+  // ⚠️ 第二轮：把「可领券」与「卡包券」按**券名**关联。
+  //
+  // 实测（2026-10-23 领券后）：`available-coupons` 的 `couponStatus`
+  // 从 CAN_GET 变成 HAVING_RECEIVE（已领取）—— 接口**是有状态的**，
+  // 领过的券仍会出现在列表里，只是状态变了。
+  //
+  // 但如果两路状态不一致（接口有延迟，或某路缓存），就会出现
+  // 「卡包里明明有这张券，麦麦省还说可领取」→ 看板会把已领的券
+  // 列进「可领未领」，用户去领却领不到。
+  //
+  // 判定：**卡包里已存在同名券 → 麦麦省那条不再算「可领取」**。
+  // ⚠️ 注意同名可能是不同批次 —— 但「是否可领」这件事上，
+  //    只要卡包里有同名券，就说明这一批至少已经有一张在手，
+  //    再提示「可领取」是没有意义的（领了也会重复）。
+  const inWallet = new Set(
+    all.filter((c) => c.source === "my" || (c.sources || []).includes("my")).map((c) => c.name)
+  );
+  const mergedList = [...byKey.values()];
+
+  // 先把已持有的券按名字索引（用于吸收麦麦省的无券信息行）
+  const walletByName = new Map();
+  for (const c of mergedList) {
+    if (c.source === "my" || (c.sources || []).includes("my")) {
+      if (!walletByName.has(c.name)) walletByName.set(c.name, []);
+      walletByName.get(c.name).push(c);
+    }
+  }
+
+  const out = [];
+  for (const c of mergedList) {
+    if (c.source === "mcd-savers") {
+      if (c.status === "可领取" && inWallet.has(c.name)) {
+        c.status = "已领取";
+        c.claimedInWallet = true;
+      }
+      // ⚠️ 麦麦省这条**没有券码/到期日/面值**（接口只给名称+图片+状态）。
+      //    卡包里已有同名券时，它就是那张券的「无信息视角」——
+      //    保留会造成看板出现两条同名的空条目（面值 ¥0、到期 —）。
+      //    直接丢弃，用卡包那条（含完整信息）代表它。
+      const wallet = walletByName.get(c.name);
+      if (wallet && wallet.length) continue;
+    }
+    out.push(c);
+  }
+
+  return out.map((c) => decorateCoupon(c, { now }));
 }
 
 // --------------------------------------------------------------------------

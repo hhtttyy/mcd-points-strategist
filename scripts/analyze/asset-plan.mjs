@@ -251,28 +251,40 @@ export function planAssetAllocation(input = {}, opts = {}) {
     );
     const unquantified = expiringCoupons.length - valuable.length;
 
+    // ⚠️ 若这些券里有的**已被测算过实际优惠额**（calculate-price 口径），
+    //    应该用测算值而不是「无法推算」的说明 —— 措辞要与事实一致。
+    const measured = expiringCoupons
+      .map((c) => c.measuredSaving)
+      .filter((v) => typeof v === "number" && Number.isFinite(v));
+    const measuredTotal = round(measured.reduce((s, v) => s + v, 0));
+
     actions.push({
       type: "coupon_expiring",
       priority: 2,
       title:
         valuable.length > 0
           ? `${expiringCoupons.length} 张券 7 天内过期（可确证优惠 ¥${totalValue}）`
-          : `${expiringCoupons.length} 张券 7 天内过期`,
+          : measuredTotal > 0
+            ? `${expiringCoupons.length} 张券 7 天内过期（实测可省 ¥${measuredTotal}）`
+            : `${expiringCoupons.length} 张券 7 天内过期`,
       detail: expiringCoupons
         .map((c) => `${c.name}${c.usableSlots !== null ? `（仅 ${c.usableSlots} 天能用）` : ""}`)
         .join("、"),
       cost: { points: 0, yuan: 0 },
       gain: {
-        yuan: totalValue,
+        yuan: totalValue || measuredTotal,
         points: totalPoints,
         // 无法折算的张数 —— 渲染层要单独说明，不能混进金额
         unquantified: unquantified,
+        measuredTotal,
       },
       reason:
         valuable.length > 0
           ? `这些券合计约等于 ${totalPoints} 积分，按影子价格 ¥${shadow.price.toFixed(4)}/分 折算` +
             (unquantified ? `；另有 ${unquantified} 张只能看到用券价格，未折算` : "")
-          : "这些券只能看到用券价格（到手价），无法推算实际优惠额，但同样会过期 —— 尽快用掉",
+          : measuredTotal > 0
+            ? `已用 calculate-price 测出这些券实际可省 ¥${measuredTotal} —— 用掉就是白赚`
+            : "这些券只能看到用券价格（到手价），无法推算实际优惠额，但同样会过期 —— 尽快用掉",
     });
   }
 

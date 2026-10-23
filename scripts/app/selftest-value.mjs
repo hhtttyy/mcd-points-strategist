@@ -257,6 +257,96 @@ if (menuRaw) {
   console.log("  ⚠ 缺少 fixtures/live/meals.json，跳过菜单测试");
 }
 
+
+console.log("\n【券的同一性 · couponId 是唯一可靠标识】");
+{
+  // 实测（2026-10-23 领券后）：卡包 5 张，其中同名「11.9元麦辣鸡腿堡」有两张，
+  // couponId 不同（A2552803… 到期 10-23 / B34E5EC6… 到期 10-30）—— 不同批次。
+  const mk = (id, name, expireAt, extra = {}) => ({
+    id, code: id, name, value: 20.48, valueKind: "coupon_price",
+    expireAt, expireText: expireAt, dayWindow: "10:30-23:59",
+    weekdays: [], channel: ["pickup"], validFrom: null,
+    source: "my", status: "已领取", itemCodes: [], itemNames: [],
+    stackable: false, usableSlots: null, ...extra,
+  });
+
+  check("同名但 couponId 不同 → 保留为两张（不同批次）", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [mk("B34E", "11.9元麦辣鸡腿堡", "2026-10-30T15:59:59.000Z")],
+    ], { now: NOW });
+    return eq(m.length, 2);
+  });
+
+  check("同一 couponId 出现在两路 → 合并成一张", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ ...mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z"),
+         source: "store", itemCodes: ["1440"], itemNames: ["麦辣鸡腿汉堡"],
+         value: 0, valueKind: "discount_amount" }],
+    ], { now: NOW });
+    return eq(m.length, 1);
+  });
+
+  check("合并后仍保留适用商品编码（门店视角）", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ ...mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z"),
+         source: "store", itemCodes: ["1440"], itemNames: ["麦辣鸡腿汉堡"],
+         value: 0, valueKind: "discount_amount" }],
+    ], { now: NOW });
+    return eq((m[0].itemCodes || []).length > 0, true);
+  });
+
+  check("合并后仍保留卡包的面额（门店的 0 不能覆盖）", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ ...mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z"),
+         source: "store", value: 0, valueKind: "discount_amount" }],
+    ], { now: NOW });
+    return eq(m[0].value, 20.48);
+  });
+
+  check("麦麦省已领取的券不再算「可领取」", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ name: "11.9元麦辣鸡腿堡", value: 0, valueKind: "discount_amount",
+         expireAt: null, expireText: "", dayWindow: "", weekdays: [], channel: [],
+         validFrom: null, source: "mcd-savers", status: "可领取",
+         itemCodes: [], itemNames: [], stackable: false, usableSlots: null,
+         id: "mcd-savers-0-11.9元麦辣鸡腿堡" }],
+    ], { now: NOW });
+    // 卡包已有同名券 → 麦麦省那条要么标记为「已领取」，
+    // 要么（因信息重复）被丢弃 —— 但**绝不能仍是「可领取」**。
+    const s = m.find((x) => x.source === "mcd-savers");
+    return eq(s === undefined || s.status === "已领取", true);
+  });
+
+  check("卡包已有同名券时，麦麦省的无信息行被丢弃（不产生空条目）", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ name: "11.9元麦辣鸡腿堡", value: 0, valueKind: "discount_amount",
+         expireAt: null, expireText: "", dayWindow: "", weekdays: [], channel: [],
+         validFrom: null, source: "mcd-savers", status: "已领取",
+         itemCodes: [], itemNames: [], stackable: false, usableSlots: null,
+         id: "mcd-savers-0-11.9元麦辣鸡腿堡" }],
+    ], { now: NOW });
+    return eq(m.length, 1);
+  });
+
+  check("卡包里没有的麦麦省券仍然保留（真的还没领）", () => {
+    const m = mergeCoupons([
+      [mk("A255", "11.9元麦辣鸡腿堡", "2026-10-23T15:59:59.000Z")],
+      [{ name: "免费脆薯饼", value: 0, valueKind: "discount_amount",
+         expireAt: null, expireText: "", dayWindow: "", weekdays: [], channel: [],
+         validFrom: null, source: "mcd-savers", status: "可领取",
+         itemCodes: [], itemNames: [], stackable: false, usableSlots: null,
+         id: "mcd-savers-2-免费脆薯饼" }],
+    ], { now: NOW });
+    return eq(m.length, 2);
+  });
+}
+
 console.log(`\n通过 ${pass} 项，失败 ${fail} 项`);
 if (fail) {
   console.log("\n失败明细：");
